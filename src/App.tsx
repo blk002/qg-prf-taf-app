@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CalendarDays, Dumbbell, Footprints, Trophy } from 'lucide-react';
-import { AccountSyncModal, FloatingCapsuleDock } from './components/UiKit';
+import { AccountSyncModal, AppNavigation } from './components/UiKit';
 import { useTafStore } from './data/useTafStore';
 import { findWeakestTest } from './domain/prfTafScoring';
 import type { ExerciseGuide, RunWorkout } from './domain/types';
@@ -37,38 +37,53 @@ export function App() {
     return templates.find((t) => t.id === id) ?? templates[0];
   }, [store.state.tafHistory, store.state.strengthTemplates]);
 
+  const navTabs = [
+    { key: 'HOJE', label: 'Hoje', icon: <CalendarDays className="w-5 h-5" /> },
+    { key: 'CORRIDA', label: 'Corrida', icon: <Footprints className="w-5 h-5" /> },
+    { key: 'FORCA', label: 'Treinos', icon: <Dumbbell className="w-5 h-5" /> },
+    { key: 'TAF', label: 'TAF', icon: <Trophy className="w-5 h-5" /> },
+  ];
+
   return (
-    <div className="min-h-dvh bg-black text-white">
-      <div className="max-w-md mx-auto min-h-dvh relative safe-top">
-        {store.activeGuidedRun ? (
-          <GuidedRunCoachScreen
-            guided={store.activeGuidedRun}
-            onTogglePlay={store.toggleGuidedRunPlaying}
-            onNextStep={store.nextGuidedStep}
-            onPreviousStep={store.previousGuidedStep}
-            onToggleVoice={store.toggleGuidedVoice}
-            onFinish={store.finishGuidedRun}
-            onDiscard={store.discardGuidedRun}
+    <div className="min-h-dvh bg-[#090B0E] text-[#F5F7FA]">
+      {store.activeGuidedRun ? (
+        <GuidedRunCoachScreen
+          guided={store.activeGuidedRun}
+          onTogglePlay={store.toggleGuidedRunPlaying}
+          onNextStep={store.nextGuidedStep}
+          onPreviousStep={store.previousGuidedStep}
+          onToggleVoice={store.toggleGuidedVoice}
+          onFinish={store.finishGuidedRun}
+          onDiscard={store.discardGuidedRun}
+        />
+      ) : store.activeWorkout ? (
+        <ActiveWorkoutScreen
+          activeWorkout={store.activeWorkout}
+          onUpdateSet={store.updateActiveSetInputs}
+          onToggleSetDone={store.toggleActiveSetCompleted}
+          onAddSet={store.addActiveSet}
+          onAdjustRest={store.adjustRestTimer}
+          onSkipRest={store.skipRestTimer}
+          onOpenExerciseGuide={setActiveGuide}
+          onDiscard={store.discardActiveWorkout}
+          onFinish={store.finishActiveWorkout}
+        />
+      ) : (
+        <div className="min-h-dvh flex flex-col">
+          <AppNavigation
+            tabs={navTabs}
+            selectedKey={currentTab}
+            onSelect={(k) => setCurrentTab(k as AppTab)}
+            isLoggedIn={store.isLoggedIn}
+            userEmail={store.authConfig.userEmail}
+            isSyncing={store.syncState.isSyncing}
+            onOpenAccount={() => setShowAccountModal(true)}
           />
-        ) : store.activeWorkout ? (
-          <ActiveWorkoutScreen
-            activeWorkout={store.activeWorkout}
-            onUpdateSet={store.updateActiveSetInputs}
-            onToggleSetDone={store.toggleActiveSetCompleted}
-            onAddSet={store.addActiveSet}
-            onAdjustRest={store.adjustRestTimer}
-            onSkipRest={store.skipRestTimer}
-            onOpenExerciseGuide={setActiveGuide}
-            onDiscard={store.discardActiveWorkout}
-            onFinish={store.finishActiveWorkout}
-          />
-        ) : (
-          <>
+
+          <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-24 lg:pt-8 lg:pb-12">
             {currentTab === 'HOJE' && (
               <HojeScreen
                 state={store.state}
-                isLoggedIn={store.isLoggedIn}
-                syncState={store.syncState}
                 isDoneToday={store.isDoneToday}
                 todayDayKey={store.todayDayKey}
                 todayReadiness={store.effectiveTodayReadiness}
@@ -85,7 +100,6 @@ export function App() {
                 onStartStrengthWorkout={store.startStrengthWorkout}
                 onNavigateToRun={() => setCurrentTab('CORRIDA')}
                 onNavigateToTaf={() => setCurrentTab('TAF')}
-                onOpenAccountModal={() => setShowAccountModal(true)}
               />
             )}
 
@@ -113,45 +127,31 @@ export function App() {
             {currentTab === 'TAF' && (
               <TafScreen
                 state={store.state}
-                isLoggedIn={store.isLoggedIn}
-                syncState={store.syncState}
                 todayBr={store.todayBr}
                 onSaveSimulado={store.saveSimulado}
                 onDeleteSimulado={store.deleteSimulado}
-                onOpenAccountModal={() => setShowAccountModal(true)}
               />
             )}
+          </main>
+        </div>
+      )}
 
-            <FloatingCapsuleDock
-              tabs={[
-                { key: 'HOJE', label: 'Hoje', icon: <CalendarDays className="w-4 h-4" /> },
-                { key: 'CORRIDA', label: 'Corrida', icon: <Footprints className="w-4 h-4" /> },
-                { key: 'FORCA', label: 'Treinos', icon: <Dumbbell className="w-4 h-4" /> },
-                { key: 'TAF', label: 'TAF', icon: <Trophy className="w-4 h-4" /> },
-              ]}
-              selectedKey={currentTab}
-              onSelect={(k) => setCurrentTab(k as AppTab)}
-            />
-          </>
-        )}
+      {showAccountModal && (
+        <AccountSyncModal
+          authConfig={store.authConfig}
+          isLoggedIn={store.isLoggedIn}
+          syncState={store.syncState}
+          lastSyncedAt={store.state.lastSyncedAt}
+          onClose={() => setShowAccountModal(false)}
+          onSignInAndSync={store.signInAndSync}
+          onSyncNow={store.syncNow}
+          onSignOut={store.signOutSupabase}
+        />
+      )}
 
-        {showAccountModal && (
-          <AccountSyncModal
-            authConfig={store.authConfig}
-            isLoggedIn={store.isLoggedIn}
-            syncState={store.syncState}
-            lastSyncedAt={store.state.lastSyncedAt}
-            onClose={() => setShowAccountModal(false)}
-            onSignInAndSync={store.signInAndSync}
-            onSyncNow={store.syncNow}
-            onSignOut={store.signOutSupabase}
-          />
-        )}
-
-        {activeGuide && (
-          <ExerciseGuideModal guide={activeGuide} onClose={() => setActiveGuide(null)} />
-        )}
-      </div>
+      {activeGuide && (
+        <ExerciseGuideModal guide={activeGuide} onClose={() => setActiveGuide(null)} />
+      )}
     </div>
   );
 }

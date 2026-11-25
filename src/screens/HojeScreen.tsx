@@ -1,24 +1,23 @@
 import { useState } from 'react';
 import {
+  CalendarClock,
   CheckCircle2,
+  ChevronRight,
   Circle,
-  Cloud,
   Dumbbell,
-  Loader2,
   Play,
-  Sparkles,
-  User,
   X,
 } from 'lucide-react';
+import heroTrackImg from '../assets/images/hero_taf_track_1795625269724.jpg';
 import {
+  ActionButton,
   EditorialRule,
-  EditorialTabRow,
-  MicroKicker,
-  MonochromePillButton,
-  StatusDotPill,
-  WhoopArcGauge,
+  MediaBanner,
+  MetadataLine,
+  PerformanceArcGauge,
+  SectionKicker,
+  SegmentedControl,
 } from '../components/UiKit';
-import type { SyncUiState } from '../data/useTafStore';
 import { analyzeNextPointGain, READINESS_OPTIONS } from '../domain/tafCoachEngine';
 import type {
   PlannedDaySlot,
@@ -55,14 +54,18 @@ function badgeForSlot(slot: PlannedDaySlot): string {
     case 'ESPECIFICO_TAF':
       return 'TF';
     default:
-      return '—';
+      return 'OFF';
   }
+}
+
+function formatStartMin(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 export function HojeScreen({
   state,
-  isLoggedIn,
-  syncState,
   isDoneToday,
   todayDayKey,
   todayReadiness,
@@ -76,11 +79,8 @@ export function HojeScreen({
   onStartStrengthWorkout,
   onNavigateToRun,
   onNavigateToTaf,
-  onOpenAccountModal,
 }: {
   state: TafAppState;
-  isLoggedIn: boolean;
-  syncState: SyncUiState;
   isDoneToday: boolean;
   todayDayKey: string;
   todayReadiness: ReadinessLevel;
@@ -94,7 +94,6 @@ export function HojeScreen({
   onStartStrengthWorkout: (tpl: WorkoutTemplate) => void;
   onNavigateToRun: () => void;
   onNavigateToTaf: () => void;
-  onOpenAccountModal: () => void;
 }) {
   const [selectedDayKey, setSelectedDayKey] = useState(todayDayKey);
   const [showSplitModal, setShowSplitModal] = useState(false);
@@ -109,231 +108,278 @@ export function HojeScreen({
   const bestScore = state.tafHistory.reduce((max, s) => Math.max(max, s.totalPts), 0);
   const tafProgress = bestScore / 25;
   const tafArcColor =
-    state.tafHistory.length === 0 ? '#A4A4AE' : bestScore >= 12 ? '#00F19F' : '#FF4D57';
+    state.tafHistory.length === 0 ? '#8A93A5' : bestScore >= 12 ? '#22C55E' : '#EF4444';
   const gapInsight = analyzeNextPointGain(state.tafHistory);
   const currentSplitLabel =
     WEEKLY_SPLIT_OPTIONS.find((o) => o.key === state.weeklySplitPreset)?.label ?? 'Seg / Qua / Sex';
   const readinessInfo =
     READINESS_OPTIONS.find((r) => r.level === todayReadiness) ?? READINESS_OPTIONS[1];
 
+  const linkedRun = selectedSlot?.linkedRunId
+    ? state.runWorkouts.find((r) => r.id === selectedSlot.linkedRunId) ?? null
+    : null;
+  const linkedTemplate = selectedSlot?.linkedTemplateId
+    ? state.strengthTemplates.find((t) => t.id === selectedSlot.linkedTemplateId) ?? null
+    : null;
+
   return (
-    <div className="px-5 pt-4 pb-28 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 lg:space-y-8">
+      {/* Page Title & Weekly Split Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <MicroKicker>QG DA PRF · TAF</MicroKicker>
-          <h1 className="text-2xl font-extrabold tracking-tight text-white mt-0.5">Hoje</h1>
+          <SectionKicker>Preparação física PRF</SectionKicker>
+          <h1 className="font-display text-4xl sm:text-5xl font-bold text-[#F5F7FA] leading-none mt-1 text-balance">
+            Treino de Hoje
+          </h1>
         </div>
         <button
           type="button"
-          onClick={onOpenAccountModal}
-          aria-label="Conta e sincronização"
-          className="w-10 h-10 rounded-full bg-[#101012] border border-[#232329] flex items-center justify-center cursor-pointer hover:border-[#3A3A44]"
+          onClick={() => setShowSplitModal(true)}
+          className="self-start sm:self-auto min-h-[44px] px-4 py-2 rounded-xl bg-[#12151B] border border-white/[0.08] hover:bg-[#1A1E26] text-xs font-semibold text-[#F5F7FA] inline-flex items-center gap-2 whitespace-nowrap cursor-pointer transition-colors"
         >
-          {syncState.isSyncing ? (
-            <Loader2 className="w-4 h-4 animate-spin text-white" />
-          ) : isLoggedIn ? (
-            <Cloud className="w-4 h-4 text-[#00F19F]" />
-          ) : (
-            <User className="w-4 h-4 text-[#A4A4AE]" />
-          )}
+          <CalendarClock className="w-4 h-4 text-[#F5B700]" />
+          <span>{currentSplitLabel}</span>
+          <span className="text-[#525B6B]" aria-hidden="true">
+            ·
+          </span>
+          <span className="font-mono text-[#9CA3B2]">
+            {formatStartMin(state.preferredTrainingStartMin)}
+          </span>
         </button>
       </div>
 
-      {/* Dual WHOOP Arc Gauges */}
-      <div className="flex items-center justify-evenly py-1">
-        <WhoopArcGauge
-          progress={tafProgress}
-          valueText={bestScore.toFixed(1)}
-          unitText="de 25 pts"
-          label="TAF PRF"
-          arcColor={tafArcColor}
-          size={142}
-          onClick={onNavigateToTaf}
-        />
-        <WhoopArcGauge
-          progress={runProgress}
-          valueText={`${Math.round(runProgress * 100)}%`}
-          unitText={`${completedRuns}/${totalRuns} · V${state.vdot}`}
-          label="CORRIDA"
-          arcColor="#FFFFFF"
-          size={142}
-          onClick={onNavigateToRun}
-        />
-      </div>
-
-      <EditorialRule />
-
-      {/* Agenda Semanal */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <MicroKicker>AGENDA DA SEMANA</MicroKicker>
-          <button
-            type="button"
-            onClick={() => setShowSplitModal(true)}
-            className="text-xs font-medium text-[#A4A4AE] hover:text-white px-2 py-0.5 rounded-lg cursor-pointer"
-          >
-            {currentSplitLabel} ▾
-          </button>
-        </div>
-
-        <div className="grid grid-cols-7 gap-1">
-          {weeklyPlan.map((slot) => {
-            const isSelected = slot.dayKey === selectedSlot?.dayKey;
-            const isToday = slot.dayKey === todayDayKey;
-            return (
-              <button
-                key={slot.dayKey}
-                type="button"
-                onClick={() => setSelectedDayKey(slot.dayKey)}
-                className="flex flex-col items-center gap-1.5 py-1 rounded-2xl cursor-pointer"
-              >
-                <span
-                  className={`text-[11px] font-bold ${isSelected ? 'text-white' : 'text-[#6D6D76]'}`}
-                >
-                  {slot.shortLabel.slice(0, 1).toUpperCase()}
-                </span>
-                <span
-                  className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold transition-colors ${
-                    isSelected ? 'bg-white text-black' : 'text-[#A4A4AE]'
+      {/* Main 12-Col Responsive Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+        {/* Left Primary Column (7 cols): Schedule + Featured Session Focal Anchor */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* 7-Day Interactive Strip */}
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+            {weeklyPlan.map((slot) => {
+              const isSelected = slot.dayKey === selectedSlot?.dayKey;
+              const isToday = slot.dayKey === todayDayKey;
+              return (
+                <button
+                  key={slot.dayKey}
+                  type="button"
+                  onClick={() => setSelectedDayKey(slot.dayKey)}
+                  className={`min-h-[68px] py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all duration-150 cursor-pointer ${
+                    isSelected
+                      ? 'bg-[#F5B700] border-[#F5B700] text-[#090B0E]'
+                      : 'bg-[#12151B] border-white/[0.08] text-[#9CA3B2] hover:bg-[#1A1E26] hover:text-[#F5F7FA]'
                   }`}
                 >
-                  {badgeForSlot(slot)}
-                </span>
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    isToday ? 'bg-[#00F19F]' : 'bg-transparent'
-                  }`}
-                />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Painel do dia selecionado */}
-      {selectedSlot && (
-        <div className="rounded-[22px] bg-[#101012] border border-[#232329] p-5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <StatusDotPill
-              text={
-                selectedSlot.estimatedMin > 0
-                  ? `${selectedSlot.shortLabel.toUpperCase()} · ~${selectedSlot.estimatedMin} MIN`
-                  : `${selectedSlot.shortLabel.toUpperCase()} · OFF`
-              }
-              color={
-                selectedSlot.linkedRunId
-                  ? '#FFFFFF'
-                  : selectedSlot.type === 'DESCANSO'
-                    ? '#6D6D76'
-                    : '#00F19F'
-              }
-            />
-            <button
-              type="button"
-              onClick={onToggleDoneToday}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full cursor-pointer"
-            >
-              {isDoneToday ? (
-                <CheckCircle2 className="w-4 h-4 text-[#00F19F]" />
-              ) : (
-                <Circle className="w-4 h-4 text-[#6D6D76]" />
-              )}
-              <span
-                className={`text-xs font-semibold ${isDoneToday ? 'text-[#00F19F]' : 'text-[#A4A4AE]'}`}
-              >
-                {isDoneToday ? 'Concluído' : 'Check-in'}
-              </span>
-            </button>
+                  <span
+                    className={`text-[11px] font-semibold ${
+                      isSelected ? 'text-[#090B0E]/80' : 'text-[#8A93A5]'
+                    }`}
+                  >
+                    {slot.shortLabel}
+                  </span>
+                  <span className="font-mono text-xs font-bold tabular-nums">
+                    {badgeForSlot(slot)}
+                  </span>
+                  <span
+                    className={`text-[9px] font-bold leading-none ${
+                      isToday
+                        ? isSelected
+                          ? 'text-[#090B0E]'
+                          : 'text-[#F5B700]'
+                        : 'text-transparent'
+                    }`}
+                  >
+                    Hoje
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          <h2 className="text-lg font-bold text-white leading-snug">{selectedSlot.title}</h2>
-          <p className="text-sm text-[#A4A4AE] leading-relaxed">{selectedSlot.subtitle}</p>
-          <p className="text-xs text-[#6D6D76] leading-relaxed">{selectedSlot.coachReason}</p>
-
-          {selectedSlot.linkedRunId ? (
-            (() => {
-              const run = state.runWorkouts.find((r) => r.id === selectedSlot.linkedRunId);
-              if (!run) return null;
-              return (
-                <div className="pt-1 space-y-1.5">
-                  <MonochromePillButton
-                    text="Iniciar com Voz"
-                    icon={<Play className="w-4 h-4 fill-black" />}
-                    onClick={() => onStartGuidedRun(run)}
+          {/* Focal Anchor: Featured Session Hero with Editorial Track Backdrop */}
+          {selectedSlot && (
+            <MediaBanner
+              src={heroTrackImg}
+              alt="Pista de atletismo ao amanhecer para treino do TAF PRF"
+            >
+              <div className="p-5 sm:p-7 space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <MetadataLine
+                    items={[
+                      selectedSlot.shortLabel,
+                      selectedSlot.estimatedMin > 0
+                        ? `~${selectedSlot.estimatedMin} min`
+                        : 'Descanso ativo',
+                      linkedRun ? `VDOT ${state.vdot}` : null,
+                    ]}
+                    className="text-[#E2E8F0]"
                   />
+
                   <button
                     type="button"
-                    onClick={() => onOpenRunWorkout(run)}
-                    className="w-full py-1.5 text-xs font-semibold text-[#A4A4AE] hover:text-white cursor-pointer"
+                    onClick={onToggleDoneToday}
+                    className={`min-h-[40px] px-3.5 rounded-xl border inline-flex items-center gap-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                      isDoneToday
+                        ? 'bg-[#22C55E]/15 border-[#22C55E]/40 text-[#86EFAC]'
+                        : 'bg-[#090B0E]/70 border-white/[0.12] text-[#F5F7FA] hover:bg-[#1A1E26]'
+                    }`}
                   >
-                    Registrar manualmente
+                    {isDoneToday ? (
+                      <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-[#8A93A5]" />
+                    )}
+                    <span>{isDoneToday ? 'Concluído hoje' : 'Marcar check-in'}</span>
                   </button>
                 </div>
-              );
-            })()
-          ) : selectedSlot.linkedTemplateId ? (
-            (() => {
-              const tpl = state.strengthTemplates.find(
-                (t) => t.id === selectedSlot.linkedTemplateId
-              );
-              if (!tpl) return null;
-              return (
-                <div className="pt-1">
-                  <MonochromePillButton
-                    text="Iniciar Treino"
-                    icon={<Dumbbell className="w-4 h-4" />}
-                    onClick={() => onStartStrengthWorkout(tpl)}
-                  />
+
+                <div className="space-y-2.5 max-w-2xl">
+                  <h2 className="font-display text-3xl sm:text-4xl font-bold text-[#F5F7FA] leading-tight text-balance">
+                    {selectedSlot.title}
+                  </h2>
+                  <p className="text-sm sm:text-base text-[#D1D5DB] leading-relaxed">
+                    {selectedSlot.subtitle}
+                  </p>
+                  <p className="text-xs sm:text-sm text-[#9CA3B2] leading-relaxed pt-1">
+                    {selectedSlot.coachReason}
+                  </p>
                 </div>
-              );
-            })()
-          ) : (
-            <div className="flex items-center gap-2 pt-1 text-[#6D6D76] text-xs">
-              <Sparkles className="w-4 h-4" />
-              <span>Recuperação ativa sem carga alta.</span>
-            </div>
+
+                {/* Primary Session Action */}
+                <div className="pt-2">
+                  {linkedRun ? (
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <ActionButton
+                        text="Iniciar com Voz"
+                        icon={<Play className="w-4 h-4 fill-[#090B0E]" />}
+                        onClick={() => onStartGuidedRun(linkedRun)}
+                        className="sm:flex-1"
+                      />
+                      <ActionButton
+                        text="Registrar manualmente"
+                        variant="secondary"
+                        onClick={() => onOpenRunWorkout(linkedRun)}
+                        className="sm:w-auto sm:px-6"
+                      />
+                    </div>
+                  ) : linkedTemplate ? (
+                    <ActionButton
+                      text="Iniciar Treino de Força"
+                      icon={<Dumbbell className="w-4 h-4" />}
+                      onClick={() => onStartStrengthWorkout(linkedTemplate)}
+                    />
+                  ) : (
+                    <p className="text-sm font-medium text-[#9CA3B2] pt-1">
+                      Dia reservado para recuperação ativa, mobilidade articular e soltura leve sem carga alta.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </MediaBanner>
           )}
         </div>
-      )}
 
-      <EditorialRule />
+        {/* Right Secondary Column (5 cols): Telemetry Gauges + Readiness + Gap Radar */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Dual Performance Gauges */}
+          <div className="rounded-2xl bg-[#12151B] border border-white/[0.08] p-5 sm:p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-[#F5F7FA]">Resumo de prontidão</h3>
+              <span className="text-xs font-mono text-[#8A93A5] tabular-nums">
+                Corte 12.0 pts
+              </span>
+            </div>
 
-      {/* Energia & Radar */}
-      <div className="space-y-3">
-        <MicroKicker>ENERGIA DE HOJE</MicroKicker>
-        <EditorialTabRow
-          options={READINESS_OPTIONS.map((r) => ({ key: r.level, label: r.label }))}
-          selectedKey={todayReadiness}
-          onSelect={(k) => onSelectReadiness(k as ReadinessLevel)}
-        />
-        <p className="text-[13px] text-[#A4A4AE] leading-relaxed">{readinessInfo.shortTip}</p>
-
-        {gapInsight && (
-          <div className="flex items-center gap-2.5 pt-1">
-            <StatusDotPill text={gapInsight.testName} color="#FFBE2E" />
-            <p className="text-xs text-[#A4A4AE] flex-1 leading-snug">{gapInsight.actionTip}</p>
+            <div className="grid grid-cols-2 gap-3 justify-items-center">
+              <PerformanceArcGauge
+                progress={tafProgress}
+                valueText={bestScore.toFixed(1)}
+                unitText="de 25 pts"
+                label="TAF PRF"
+                arcColor={tafArcColor}
+                size={146}
+                onClick={onNavigateToTaf}
+              />
+              <PerformanceArcGauge
+                progress={runProgress}
+                valueText={`${Math.round(runProgress * 100)}%`}
+                unitText={`${completedRuns}/${totalRuns} · V${state.vdot}`}
+                label="Corrida"
+                arcColor="#F5B700"
+                size={146}
+                onClick={onNavigateToRun}
+              />
+            </div>
           </div>
-        )}
+
+          {/* Energia de Hoje */}
+          <div className="rounded-2xl bg-[#12151B] border border-white/[0.08] p-5 sm:p-6 space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold text-[#F5F7FA]">Energia de hoje</h3>
+              <p className="text-xs text-[#8A93A5]">
+                Ajuste a intensidade conforme sua recuperação diária.
+              </p>
+            </div>
+
+            <SegmentedControl
+              options={READINESS_OPTIONS.map((r) => ({ key: r.level, label: r.label }))}
+              selectedKey={todayReadiness}
+              onSelect={(k) => onSelectReadiness(k as ReadinessLevel)}
+            />
+
+            <p className="text-xs sm:text-sm text-[#9CA3B2] leading-relaxed">
+              {readinessInfo.shortTip}
+            </p>
+
+            {gapInsight && (
+              <>
+                <EditorialRule />
+                <button
+                  type="button"
+                  onClick={onNavigateToTaf}
+                  className="w-full text-left flex items-start justify-between gap-3 group cursor-pointer"
+                >
+                  <div className="space-y-1">
+                    <MetadataLine
+                      items={['Radar de pontos', gapInsight.testName]}
+                      className="text-[#F5B700]"
+                    />
+                    <p className="text-xs sm:text-sm text-[#D1D5DB] leading-relaxed">
+                      {gapInsight.actionTip}
+                    </p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-[#8A93A5] group-hover:text-[#F5F7FA] shrink-0 mt-1 transition-colors" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Modal Divisão Semanal + Horário Rotina de Vida */}
       {showSplitModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full max-w-md bg-[#101012] border border-[#232329] rounded-t-3xl sm:rounded-3xl p-5 space-y-4 safe-bottom max-h-[88dvh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-white">Dias de Corrida</h3>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full max-w-md bg-[#12151B] border border-white/[0.1] rounded-t-3xl sm:rounded-2xl p-5 sm:p-6 space-y-5 safe-bottom max-h-[88dvh] overflow-y-auto">
+            <div className="sm:hidden w-10 h-1.5 rounded-full bg-white/15 mx-auto -mt-1 mb-2" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <SectionKicker>Planejamento semanal</SectionKicker>
+                <h3 className="font-display text-2xl font-bold text-[#F5F7FA] mt-0.5">
+                  Dias de Corrida
+                </h3>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowSplitModal(false)}
-                className="w-8 h-8 rounded-full bg-[#1C1C21] flex items-center justify-center text-[#A4A4AE] cursor-pointer"
+                aria-label="Fechar"
+                className="min-w-[44px] min-h-[44px] rounded-xl bg-[#1A1E26] border border-white/[0.08] flex items-center justify-center text-[#9CA3B2] hover:text-[#F5F7FA] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-xs text-[#6D6D76]">
-              Os treinos de força e específicos são encaixados automaticamente nos demais dias.
+
+            <p className="text-xs text-[#9CA3B2] leading-relaxed">
+              Os treinos de força e específicos do TAF são distribuídos automaticamente nos demais dias.
             </p>
+
             <div className="space-y-2">
               {WEEKLY_SPLIT_OPTIONS.map((opt) => {
                 const selected = opt.key === state.weeklySplitPreset;
@@ -345,8 +391,10 @@ export function HojeScreen({
                       onSelectSplitPreset(opt.key);
                       setShowSplitModal(false);
                     }}
-                    className={`w-full px-4 py-3.5 rounded-2xl flex items-center justify-between text-sm font-bold cursor-pointer ${
-                      selected ? 'bg-white text-black' : 'bg-[#1C1C21] text-white'
+                    className={`w-full min-h-[48px] px-4 py-3 rounded-xl flex items-center justify-between text-sm font-semibold border transition-colors cursor-pointer ${
+                      selected
+                        ? 'bg-[#F5B700] border-[#F5B700] text-[#090B0E]'
+                        : 'bg-[#1A1E26] border-white/[0.08] text-[#F5F7FA] hover:bg-[#232833]'
                     }`}
                   >
                     <span>{opt.label}</span>
@@ -356,8 +404,12 @@ export function HojeScreen({
               })}
             </div>
 
-            <div className="pt-2 space-y-2.5 border-t border-[#232329]">
-              <h4 className="text-sm font-bold text-white">Horário na Rotina de Vida do QG</h4>
+            <EditorialRule />
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-[#F5F7FA]">
+                Horário na Rotina de Vida do QG
+              </h4>
               <div className="grid grid-cols-4 gap-2">
                 {TIME_SLOTS.map(([min, label]) => {
                   const selected = state.preferredTrainingStartMin === min;
@@ -366,8 +418,10 @@ export function HojeScreen({
                       key={min}
                       type="button"
                       onClick={() => onSelectTrainingStartMin(min)}
-                      className={`py-2.5 rounded-xl text-xs font-bold font-mono cursor-pointer ${
-                        selected ? 'bg-white text-black' : 'bg-[#1C1C21] text-white'
+                      className={`min-h-[44px] rounded-xl text-xs font-mono font-bold border transition-colors cursor-pointer tabular-nums ${
+                        selected
+                          ? 'bg-[#F5B700] border-[#F5B700] text-[#090B0E]'
+                          : 'bg-[#1A1E26] border-white/[0.08] text-[#F5F7FA] hover:bg-[#232833]'
                       }`}
                     >
                       {label}
@@ -375,7 +429,7 @@ export function HojeScreen({
                   );
                 })}
               </div>
-              <p className="text-[11px] text-[#6D6D76] leading-relaxed">
+              <p className="text-xs text-[#8A93A5] leading-relaxed">
                 Os tempos planejados e concluídos sincronizam automaticamente com a aba Rotina de Vida no QG.
               </p>
             </div>
