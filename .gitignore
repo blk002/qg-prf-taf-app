@@ -1,0 +1,19 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.local
+.env.*.local
+.DS_Store
+
+# Android / Capacitor build outputs & secrets
+android/.gradle
+android/build
+android/app/build
+android/captures
+android/local.properties
+android/.idea
+*.iml
+*.keystore
+*.jks
