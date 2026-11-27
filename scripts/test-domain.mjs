@@ -64,18 +64,62 @@ try {
 
   // 5. Weekly Planner + Planned Routine Blocks
   const templates = strength.defaultPrfTemplates();
-  const refDate = new Date(2026, 10, 24); // Tuesday, Monday = 2026-11-23
-  const plannedAll = planner.buildPlannedRoutineBlocks(
+
+  // 5a. On Monday (2026-11-23), all 3 runs Q1/Q2/Q3 are scheduled across Seg/Qua/Sex (6 training days total)
+  const mondayRef = new Date(2026, 10, 23);
+  const mondayPlan = planner.buildWeeklyPlan('SEG_QUA_SEX', plan, [], templates, mondayRef);
+  assert.equal(mondayPlan.find((d) => d.dayKey === 'seg')?.linkedRunId, 'II-9-Q1');
+  assert.equal(mondayPlan.find((d) => d.dayKey === 'qua')?.linkedRunId, 'II-9-Q2');
+  assert.equal(mondayPlan.find((d) => d.dayKey === 'sex')?.linkedRunId, 'II-9-Q3');
+
+  const plannedAllMonday = planner.buildPlannedRoutineBlocks(
     'SEG_QUA_SEX',
     plan,
     [],
     templates,
     390,
     [],
-    refDate
+    mondayRef
   );
-  assert.equal(plannedAll.length, 6);
-  assert.ok(plannedAll.every((b) => b.isPlanned && b.source === 'taf_app' && b.category === 'training'));
+  assert.equal(plannedAllMonday.length, 6);
+  assert.ok(
+    plannedAllMonday.every((b) => b.isPlanned && b.source === 'taf_app' && b.category === 'training')
+  );
+
+  // 5b. On Wednesday (2026-11-25), if Q1 was NOT completed on Monday, today (Qua) MUST prescribe Q1 (not Q2)
+  const wedRef = new Date(2026, 10, 25);
+  const wedPlanMissedQ1 = planner.buildWeeklyPlan('SEG_QUA_SEX', plan, [], templates, wedRef);
+  assert.equal(wedPlanMissedQ1.find((d) => d.dayKey === 'seg')?.type, 'CORRIDA_REAGENDADA');
+  assert.equal(wedPlanMissedQ1.find((d) => d.dayKey === 'seg')?.linkedRunId, null);
+  assert.equal(wedPlanMissedQ1.find((d) => d.dayKey === 'qua')?.linkedRunId, 'II-9-Q1');
+  assert.equal(wedPlanMissedQ1.find((d) => d.dayKey === 'qua')?.type, 'CORRIDA_Q1');
+  assert.equal(wedPlanMissedQ1.find((d) => d.dayKey === 'qua')?.isRescheduled, true);
+  assert.equal(wedPlanMissedQ1.find((d) => d.dayKey === 'sex')?.linkedRunId, 'II-9-Q2');
+
+  // 5c. On Wednesday (2026-11-25), once Q1 IS completed on Monday, today (Qua) advances to Q2
+  const planWithQ1Done = plan.map((w) =>
+    w.id === 'II-9-Q1' ? { ...w, status: 'FEITO', completedDate: '2026-11-23' } : w
+  );
+  const wedPlanQ1Done = planner.buildWeeklyPlan('SEG_QUA_SEX', planWithQ1Done, [], templates, wedRef);
+  assert.equal(wedPlanQ1Done.find((d) => d.dayKey === 'seg')?.linkedRunId, 'II-9-Q1');
+  assert.equal(wedPlanQ1Done.find((d) => d.dayKey === 'qua')?.linkedRunId, 'II-9-Q2');
+  assert.equal(wedPlanQ1Done.find((d) => d.dayKey === 'qua')?.isRescheduled, false);
+  assert.equal(wedPlanQ1Done.find((d) => d.dayKey === 'sex')?.linkedRunId, 'II-9-Q3');
+
+  // 5d. On Wednesday (2026-11-25), if Q1 was completed TODAY, Qua keeps showing Q1 as done and Sex gets Q2
+  const planWithQ1DoneToday = plan.map((w) =>
+    w.id === 'II-9-Q1' ? { ...w, status: 'FEITO', completedDate: '2026-11-25' } : w
+  );
+  const wedPlanQ1Today = planner.buildWeeklyPlan(
+    'SEG_QUA_SEX',
+    planWithQ1DoneToday,
+    [],
+    templates,
+    wedRef
+  );
+  assert.equal(wedPlanQ1Today.find((d) => d.dayKey === 'qua')?.linkedRunId, 'II-9-Q1');
+  assert.equal(wedPlanQ1Today.find((d) => d.dayKey === 'qua')?.runStatus, 'FEITO');
+  assert.equal(wedPlanQ1Today.find((d) => d.dayKey === 'sex')?.linkedRunId, 'II-9-Q2');
 
   const plannedRemaining = planner.buildPlannedRoutineBlocks(
     'SEG_QUA_SEX',
@@ -98,7 +142,7 @@ try {
         isPlanned: false,
       },
     ],
-    refDate
+    mondayRef
   );
   assert.equal(plannedRemaining.length, 5);
 

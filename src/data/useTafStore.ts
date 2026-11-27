@@ -92,6 +92,7 @@ export interface GuidedRunState {
 function defaultState(): TafAppState {
   return {
     vdot: 34,
+    vdotHistory: [],
     runWorkouts: defaultJackDanielsWorkouts(),
     strengthTemplates: defaultPrfTemplates(),
     strengthHistory: [],
@@ -126,6 +127,7 @@ function loadSavedState(): TafAppState {
           : base.strengthTemplates,
       strengthHistory: Array.isArray(parsed.strengthHistory) ? parsed.strengthHistory : [],
       tafHistory: Array.isArray(parsed.tafHistory) ? parsed.tafHistory : [],
+      vdotHistory: Array.isArray(parsed.vdotHistory) ? parsed.vdotHistory : [],
       routineBlocks: Array.isArray(parsed.routineBlocks) ? parsed.routineBlocks : [],
       deletedTafIds: Array.isArray(parsed.deletedTafIds) ? parsed.deletedTafIds : [],
     };
@@ -139,8 +141,8 @@ function loadSavedAuth(): SupabaseConfig {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     const parsed = raw ? (JSON.parse(raw) as Partial<SupabaseConfig>) : {};
     return {
-      supabaseUrl: parsed.supabaseUrl || ENV_SUPABASE_URL,
-      supabaseAnonKey: parsed.supabaseAnonKey || ENV_SUPABASE_ANON_KEY,
+      supabaseUrl: ENV_SUPABASE_URL || parsed.supabaseUrl || '',
+      supabaseAnonKey: ENV_SUPABASE_ANON_KEY || parsed.supabaseAnonKey || '',
       userEmail: parsed.userEmail || '',
       accessToken: parsed.accessToken || '',
       refreshToken: parsed.refreshToken || '',
@@ -185,7 +187,11 @@ function effectiveRoutineBlocksForSync(st: TafAppState): RoutineTrainingBlock[] 
   return [...completed, ...planned].slice(0, 60);
 }
 
-function mergeRemoteAndLocal(local: TafAppState, remote: RemoteTafPayload): TafAppState {
+function mergeRemoteAndLocal(
+  local: TafAppState,
+  remote: RemoteTafPayload,
+  preferLocal = false
+): TafAppState {
   const deletedSet = new Set([
     ...local.deletedTafIds,
     ...(remote.tafAppData.deletedTafIds ?? []),
@@ -198,17 +204,22 @@ function mergeRemoteAndLocal(local: TafAppState, remote: RemoteTafPayload): TafA
 
   const localDone = local.tafTrainingStatus.lastDoneDate;
   const remoteDone = remote.tafTrainingStatus.lastDoneDate;
-  const mergedLastDone = [localDone, remoteDone].filter((d): d is string => Boolean(d)).sort().pop() ?? null;
+  const mergedLastDone = preferLocal
+    ? localDone
+    : [localDone, remoteDone].filter((d): d is string => Boolean(d)).sort().pop() ?? null;
 
   const baseRuns = local.runWorkouts.length > 0 ? local.runWorkouts : defaultJackDanielsWorkouts();
   const remoteRunsById = new Map((remote.tafAppData.runWorkouts ?? []).map((r) => [r.id, r]));
-  const mergedRuns = baseRuns.map((localRun) => {
-    const remoteRun = remoteRunsById.get(localRun.id);
-    if (!remoteRun) return localRun;
-    if (localRun.status === 'PENDENTE' && remoteRun.status !== 'PENDENTE') return remoteRun;
-    if (!localRun.notes.trim() && remoteRun.notes.trim()) return { ...localRun, notes: remoteRun.notes };
-    return localRun;
-  });
+  const mergedRuns = preferLocal
+    ? baseRuns
+    : baseRuns.map((localRun) => {
+        const remoteRun = remoteRunsById.get(localRun.id);
+        if (!remoteRun) return localRun;
+        if (localRun.status === 'PENDENTE' && remoteRun.status !== 'PENDENTE') return remoteRun;
+        if (!localRun.notes.trim() && remoteRun.notes.trim())
+          return { ...localRun, notes: remoteRun.notes };
+        return localRun;
+      });
 
   const strengthMap = new Map<number, StrengthSession>();
   (remote.tafAppData.strengthHistory ?? []).forEach((s) => strengthMap.set(s.id, s));
@@ -325,7 +336,7 @@ export function useTafStore() {
   }, []);
 
   const performSync = useCallback(
-    async (initialConfig: SupabaseConfig, silent = false) => {
+    async (initialConfig: SupabaseConfig, silent = false, preferLocal = false) => {
       if (syncingRef.current) return;
       syncingRef.current = true;
       setSyncState((prev) =>
@@ -368,7 +379,7 @@ export function useTafStore() {
           }
         }
 
-        const merged = mergeRemoteAndLocal(stateRef.current, remote);
+        const merged = mergeRemoteAndLocal(stateRef.current, remote, preferLocal);
         const blocksToPush = effectiveRoutineBlocksForSync(merged);
         const appDataToPush: RemoteTafAppData = {
           vdot: merged.vdot,
@@ -420,7 +431,7 @@ export function useTafStore() {
   );
 
   const triggerAutoSync = useCallback(
-    (delayMs = 1200) => {
+    (delayMs = 1200, preferLocal = true) => {
       const cfg = authRef.current;
       if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || !cfg.accessToken) return;
       if (autoSyncTimerRef.current !== null) {
@@ -429,7 +440,7 @@ export function useTafStore() {
       autoSyncTimerRef.current = window.setTimeout(() => {
         const latestCfg = authRef.current;
         if (latestCfg.accessToken && !syncingRef.current) {
-          void performSync(latestCfg, true);
+          void performSync(latestCfg, true, preferLocal);
         }
       }, delayMs);
     },
@@ -439,7 +450,7 @@ export function useTafStore() {
   useEffect(() => {
     const cfg = authRef.current;
     if (cfg.supabaseUrl && cfg.supabaseAnonKey && cfg.accessToken) {
-      triggerAutoSync(800);
+      triggerAutoSync(800, false);
     }
     return () => {
       if (autoSyncTimerRef.current !== null) window.clearTimeout(autoSyncTimerRef.current);
@@ -523,7 +534,6 @@ export function useTafStore() {
   const todayIso = formatLocalIsoDate(new Date());
   const todayBr = formatBrDate(new Date());
   const todayDayKey = weekdayKey(new Date());
-  const isDoneToday = state.tafTrainingStatus.lastDoneDate === todayIso;
   const effectiveTodayReadiness: ReadinessLevel =
     state.todayReadinessDate === todayIso ? state.todayReadiness : 'NORMAL';
 
@@ -535,8 +545,16 @@ export function useTafStore() {
         state.tafHistory,
         state.strengthTemplates
       ),
-    [state.weeklySplitPreset, state.runWorkouts, state.tafHistory, state.strengthTemplates]
+    [state.weeklySplitPreset, state.runWorkouts, state.tafHistory, state.strengthTemplates, todayIso]
   );
+
+  const todaySlot = weeklyPlan.find((s) => s.dayKey === todayDayKey);
+  const todayLinkedRun = todaySlot?.linkedRunId
+    ? state.runWorkouts.find((r) => r.id === todaySlot.linkedRunId) ?? null
+    : null;
+  const isDoneToday = todayLinkedRun
+    ? todayLinkedRun.status === 'FEITO' || todayLinkedRun.status === 'PARCIAL'
+    : state.tafTrainingStatus.lastDoneDate === todayIso;
 
   const nextPendingRun = useMemo(
     () => state.runWorkouts.find((r) => r.status === 'PENDENTE') ?? null,
@@ -569,30 +587,123 @@ export function useTafStore() {
   );
 
   const toggleTodayTafDone = useCallback(() => {
-    const today = formatLocalIsoDate(new Date());
-    mutateAndSave((prev) => ({
-      ...prev,
-      tafTrainingStatus: {
-        lastDoneDate: prev.tafTrainingStatus.lastDoneDate === today ? null : today,
-      },
-    }));
+    const now = new Date();
+    const today = formatLocalIsoDate(now);
+    const dayKey = weekdayKey(now);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+
+    mutateAndSave((prev) => {
+      const planNow = buildWeeklyPlan(
+        prev.weeklySplitPreset,
+        prev.runWorkouts,
+        prev.tafHistory,
+        prev.strengthTemplates,
+        now
+      );
+      const todaySlot = planNow.find((s) => s.dayKey === dayKey);
+      const todayRunId = todaySlot?.linkedRunId ?? null;
+      const todayRun = todayRunId ? prev.runWorkouts.find((r) => r.id === todayRunId) ?? null : null;
+
+      const isCurrentlyDone = todayRun
+        ? todayRun.status === 'FEITO' || todayRun.status === 'PARCIAL'
+        : prev.tafTrainingStatus.lastDoneDate === today;
+
+      let nextRuns = prev.runWorkouts;
+      let nextBlocks = prev.routineBlocks;
+
+      if (todayRun) {
+        if (!isCurrentlyDone) {
+          const dur = Math.min(
+            240,
+            Math.max(15, todayRun.durationMin ?? estimateRunDurationMinutes(todayRun.prescription))
+          );
+          const endMin = Math.min(1440, Math.max(dur, nowMin));
+          const startMin = todayRun.startMin ?? Math.max(0, endMin - dur);
+          const newBlock: RoutineTrainingBlock = {
+            id: `taf_run_${todayRun.id}`,
+            dayKey,
+            dateIso: today,
+            label: `Corrida Sem ${todayRun.week} · ${todayRun.code}`,
+            startMin,
+            endMin: Math.min(1440, startMin + dur),
+            durationMin: dur,
+            note: `${dur} min · ${todayRun.prescription.slice(0, 60)} (App TAF)`,
+            category: 'training',
+            source: 'taf_app',
+            isPlanned: false,
+          };
+          nextRuns = prev.runWorkouts.map((r) =>
+            r.id === todayRun.id
+              ? { ...r, status: 'FEITO', completedDate: today, durationMin: dur, startMin }
+              : r
+          );
+          nextBlocks = [
+            newBlock,
+            ...prev.routineBlocks.filter((b) => b.id !== newBlock.id),
+          ].slice(0, 60);
+        } else if (todayRun.completedDate === today) {
+          nextRuns = prev.runWorkouts.map((r) =>
+            r.id === todayRun.id
+              ? { ...r, status: 'PENDENTE', completedDate: null, durationMin: null, startMin: null }
+              : r
+          );
+          nextBlocks = prev.routineBlocks.filter((b) => b.id !== `taf_run_${todayRun.id}`);
+        }
+      }
+
+      return {
+        ...prev,
+        runWorkouts: nextRuns,
+        routineBlocks: nextBlocks,
+        tafTrainingStatus: {
+          lastDoneDate: isCurrentlyDone ? null : today,
+        },
+      };
+    });
     triggerAutoSync();
   }, [mutateAndSave, triggerAutoSync]);
 
   const updateRunWorkout = useCallback(
-    (workoutId: string, newStatus: RunStatus, notes: string, durationMin?: number) => {
+    (
+      workoutId: string,
+      newStatus: RunStatus,
+      notes: string,
+      durationMin?: number,
+      completedDateIso?: string
+    ) => {
       const now = new Date();
       const today = formatLocalIsoDate(now);
       const dayKey = weekdayKey(now);
       const nowMin = now.getHours() * 60 + now.getMinutes();
 
+      const parseLocalIsoDate = (iso: string | undefined): Date | null => {
+        if (!iso) return null;
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+        if (!match) return null;
+        const y = Number(match[1]);
+        const m = Number(match[2]);
+        const d = Number(match[3]);
+        const dt = new Date(y, m - 1, d);
+        if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+        return dt;
+      };
+
       mutateAndSave((prev) => {
+        const previousRun = prev.runWorkouts.find((item) => item.id === workoutId) ?? null;
+        const isCompleted = newStatus === 'FEITO' || newStatus === 'PARCIAL';
+        const parsedCustom = parseLocalIsoDate(completedDateIso);
+        const resolvedDate: string | null = isCompleted
+          ? parsedCustom
+            ? completedDateIso!.trim()
+            : previousRun?.completedDate ?? today
+          : null;
         let updatedBlock: RoutineTrainingBlock | null = null;
+
         const nextRuns = prev.runWorkouts.map((item) => {
           if (item.id !== workoutId) return item;
-          const isCompleted = newStatus === 'FEITO' || newStatus === 'PARCIAL';
-          if (isCompleted) {
-            const date = item.completedDate ?? today;
+          if (isCompleted && resolvedDate) {
+            const parsedDate = parseLocalIsoDate(resolvedDate);
+            const blockDayKey = parsedDate ? weekdayKey(parsedDate) : dayKey;
             const dur = Math.min(
               240,
               Math.max(15, durationMin ?? item.durationMin ?? estimateRunDurationMinutes(item.prescription))
@@ -601,8 +712,8 @@ export function useTafStore() {
             const startMin = item.startMin ?? Math.max(0, endMin - dur);
             updatedBlock = {
               id: `taf_run_${item.id}`,
-              dayKey,
-              dateIso: date,
+              dayKey: blockDayKey,
+              dateIso: resolvedDate,
               label: `Corrida Sem ${item.week} · ${item.code}`,
               startMin,
               endMin: Math.min(1440, startMin + dur),
@@ -616,7 +727,7 @@ export function useTafStore() {
               ...item,
               status: newStatus,
               notes: notes.trim(),
-              completedDate: date,
+              completedDate: resolvedDate,
               durationMin: dur,
               startMin,
             };
@@ -634,12 +745,48 @@ export function useTafStore() {
         const blockId = `taf_run_${workoutId}`;
         const baseBlocks = prev.routineBlocks.filter((b) => b.id !== blockId);
         const nextBlocks = updatedBlock ? [updatedBlock, ...baseBlocks].slice(0, 60) : baseBlocks;
-        const shouldMarkToday = newStatus === 'FEITO' || newStatus === 'PARCIAL';
+
+        let nextLastDoneDate = prev.tafTrainingStatus.lastDoneDate;
+        if (isCompleted && resolvedDate === today) {
+          nextLastDoneDate = today;
+        } else if (prev.tafTrainingStatus.lastDoneDate === today) {
+          const hasOtherCompletedToday =
+            nextRuns.some(
+              (r) => (r.status === 'FEITO' || r.status === 'PARCIAL') && r.completedDate === today
+            ) || prev.strengthHistory.some((s) => s.dateIso === today);
+
+          const movedOrPastDateEdit =
+            previousRun?.completedDate === today ||
+            !previousRun?.completedDate ||
+            Boolean(resolvedDate && resolvedDate < today) ||
+            !isCompleted;
+
+          if (!hasOtherCompletedToday && movedOrPastDateEdit) {
+            const allCompletionDates = [
+              ...nextRuns
+                .filter((r) => (r.status === 'FEITO' || r.status === 'PARCIAL') && r.completedDate)
+                .map((r) => r.completedDate as string),
+              ...prev.strengthHistory
+                .filter((s) => Boolean(s.dateIso))
+                .map((s) => s.dateIso as string),
+            ]
+              .filter((d) => d <= today)
+              .sort();
+            nextLastDoneDate =
+              allCompletionDates.length > 0
+                ? allCompletionDates[allCompletionDates.length - 1]
+                : null;
+          }
+        } else if (isCompleted && resolvedDate) {
+          if (!nextLastDoneDate || (resolvedDate <= today && resolvedDate > nextLastDoneDate)) {
+            nextLastDoneDate = resolvedDate;
+          }
+        }
 
         return {
           ...prev,
           runWorkouts: nextRuns,
-          tafTrainingStatus: shouldMarkToday ? { lastDoneDate: today } : prev.tafTrainingStatus,
+          tafTrainingStatus: { lastDoneDate: nextLastDoneDate },
           routineBlocks: nextBlocks,
         };
       });
@@ -648,20 +795,46 @@ export function useTafStore() {
     [mutateAndSave, triggerAutoSync]
   );
 
-  const updateVdot = useCallback(
-    (newVdot: number) => {
-      mutateAndSave((prev) => ({ ...prev, vdot: Math.min(65, Math.max(30, Math.round(newVdot))) }));
+  const logVdotCheckpoint = useCallback(
+    (newVdot: number, source: 'manual' | 'teste' = 'manual', note?: string) => {
+      const clamped = Math.min(65, Math.max(30, Math.round(newVdot)));
+      const today = formatBrDate(new Date());
+      mutateAndSave((prev) => {
+        const history = Array.isArray(prev.vdotHistory) ? [...prev.vdotHistory] : [];
+        const last = history[history.length - 1];
+        if (last && last.dateStr === today && last.source === source && !note) {
+          history[history.length - 1] = { ...last, vdot: clamped };
+        } else {
+          history.push({
+            id: Date.now(),
+            dateStr: today,
+            vdot: clamped,
+            source,
+            note: note?.trim() || undefined,
+          });
+        }
+        return { ...prev, vdot: clamped, vdotHistory: history.slice(-30) };
+      });
     },
     [mutateAndSave]
+  );
+
+  const updateVdot = useCallback(
+    (newVdot: number) => {
+      logVdotCheckpoint(newVdot, 'manual');
+    },
+    [logVdotCheckpoint]
   );
 
   const updateVdotFromTest = useCallback(
     (distanceMeters: number, timeSeconds: number): number => {
       const calc = Math.min(65, Math.max(30, Math.round(calculateVdot(distanceMeters, timeSeconds))));
-      updateVdot(calc);
+      const mins = Math.floor(timeSeconds / 60);
+      const secs = timeSeconds % 60;
+      logVdotCheckpoint(calc, 'teste', `${distanceMeters}m em ${mins}:${String(secs).padStart(2, '0')}`);
       return calc;
     },
-    [updateVdot]
+    [logVdotCheckpoint]
   );
 
   const saveSimulado = useCallback(
@@ -710,6 +883,84 @@ export function useTafStore() {
         deletedTafIds: Array.from(new Set([...prev.deletedTafIds, id])),
       }));
       triggerAutoSync();
+    },
+    [mutateAndSave, triggerAutoSync]
+  );
+
+  const saveStrengthTemplate = useCallback(
+    (template: WorkoutTemplate) => {
+      mutateAndSave((prev) => {
+        const exists = prev.strengthTemplates.some((t) => t.id === template.id);
+        const nextTemplates = exists
+          ? prev.strengthTemplates.map((t) => (t.id === template.id ? template : t))
+          : [...prev.strengthTemplates, template];
+        return { ...prev, strengthTemplates: nextTemplates };
+      });
+      triggerAutoSync();
+    },
+    [mutateAndSave, triggerAutoSync]
+  );
+
+  const deleteStrengthTemplate = useCallback(
+    (templateId: string) => {
+      mutateAndSave((prev) => {
+        if (prev.strengthTemplates.length <= 1) return prev;
+        return {
+          ...prev,
+          strengthTemplates: prev.strengthTemplates.filter((t) => t.id !== templateId),
+        };
+      });
+      triggerAutoSync();
+    },
+    [mutateAndSave, triggerAutoSync]
+  );
+
+  const resetStrengthTemplates = useCallback(() => {
+    mutateAndSave((prev) => ({
+      ...prev,
+      strengthTemplates: defaultPrfTemplates(),
+    }));
+    triggerAutoSync();
+  }, [mutateAndSave, triggerAutoSync]);
+
+  const importAppStateBackup = useCallback(
+    (rawJson: string): { ok: boolean; message: string } => {
+      try {
+        const parsed = JSON.parse(rawJson) as { state?: Partial<TafAppState> } & Partial<TafAppState>;
+        const candidate = parsed.state && typeof parsed.state === 'object' ? parsed.state : parsed;
+        if (
+          !candidate ||
+          (!Array.isArray(candidate.runWorkouts) &&
+            !Array.isArray(candidate.tafHistory) &&
+            !Array.isArray(candidate.strengthTemplates))
+        ) {
+          return { ok: false, message: 'Arquivo JSON inválido para o QG da PRF.' };
+        }
+        const base = defaultState();
+        mutateAndSave(() => ({
+          ...base,
+          ...candidate,
+          runWorkouts:
+            Array.isArray(candidate.runWorkouts) && candidate.runWorkouts.length > 0
+              ? candidate.runWorkouts
+              : base.runWorkouts,
+          strengthTemplates:
+            Array.isArray(candidate.strengthTemplates) && candidate.strengthTemplates.length > 0
+              ? candidate.strengthTemplates
+              : base.strengthTemplates,
+          strengthHistory: Array.isArray(candidate.strengthHistory)
+            ? candidate.strengthHistory
+            : [],
+          tafHistory: Array.isArray(candidate.tafHistory) ? candidate.tafHistory : [],
+          vdotHistory: Array.isArray(candidate.vdotHistory) ? candidate.vdotHistory : [],
+          routineBlocks: Array.isArray(candidate.routineBlocks) ? candidate.routineBlocks : [],
+          deletedTafIds: Array.isArray(candidate.deletedTafIds) ? candidate.deletedTafIds : [],
+        }));
+        triggerAutoSync();
+        return { ok: true, message: 'Backup restaurado com sucesso!' };
+      } catch {
+        return { ok: false, message: 'Não foi possível ler o JSON. Verifique o arquivo.' };
+      }
     },
     [mutateAndSave, triggerAutoSync]
   );
@@ -1012,14 +1263,30 @@ export function useTafStore() {
         !guided.workout.notes.trim() || guided.workout.notes === '---'
           ? summary
           : `${guided.workout.notes} | ${summary}`;
-      updateRunWorkout(guided.workout.id, asPartial ? 'PARCIAL' : 'FEITO', mergedNote, mins);
+      updateRunWorkout(
+        guided.workout.id,
+        asPartial ? 'PARCIAL' : 'FEITO',
+        mergedNote,
+        mins,
+        formatLocalIsoDate(new Date())
+      );
       setActiveGuidedRun(null);
     },
     [activeGuidedRun, updateRunWorkout]
   );
 
   const signInAndSync = useCallback(
-    async (supabaseUrl: string, anonKey: string, email: string, password: string) => {
+    async (email: string, password: string) => {
+      const supabaseUrl = ENV_SUPABASE_URL || authRef.current.supabaseUrl;
+      const anonKey = ENV_SUPABASE_ANON_KEY || authRef.current.supabaseAnonKey;
+      if (!supabaseUrl || !anonKey) {
+        setSyncState({
+          isSyncing: false,
+          message: 'Conexão com o Supabase ainda não configurada no ambiente do aplicativo.',
+          isError: true,
+        });
+        return;
+      }
       setSyncState({ isSyncing: true, message: 'Conectando ao QG da PRF...', isError: false });
       try {
         const normalized = normalizeSupabaseUrl(supabaseUrl);
@@ -1087,8 +1354,13 @@ export function useTafStore() {
     updateRunWorkout,
     updateVdot,
     updateVdotFromTest,
+    logVdotCheckpoint,
     saveSimulado,
     deleteSimulado,
+    saveStrengthTemplate,
+    deleteStrengthTemplate,
+    resetStrengthTemplates,
+    importAppStateBackup,
     startStrengthWorkout,
     updateActiveSetInputs,
     toggleActiveSetCompleted,

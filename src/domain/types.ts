@@ -122,6 +122,7 @@ export type PlannedDayType =
   | 'CORRIDA_Q1'
   | 'CORRIDA_Q2'
   | 'CORRIDA_Q3'
+  | 'CORRIDA_REAGENDADA'
   | 'FORCA_BARRA'
   | 'FORT_CORRIDA'
   | 'ESPECIFICO_TAF'
@@ -137,6 +138,9 @@ export interface PlannedDaySlot {
   linkedRunId: string | null;
   linkedTemplateId: string | null;
   coachReason: string;
+  runStatus?: RunStatus;
+  isRescheduled?: boolean;
+  rescheduledTargetDayKey?: string | null;
 }
 
 export type ReadinessLevel = 'ALTA' | 'NORMAL' | 'CANSADO';
@@ -169,8 +173,17 @@ export interface RunStep {
   type: RunStepType;
 }
 
+export interface VdotCheckpoint {
+  id: number;
+  dateStr: string;
+  vdot: number;
+  source: 'manual' | 'teste';
+  note?: string;
+}
+
 export interface TafAppState {
   vdot: number;
+  vdotHistory?: VdotCheckpoint[];
   runWorkouts: RunWorkout[];
   strengthTemplates: WorkoutTemplate[];
   strengthHistory: StrengthSession[];

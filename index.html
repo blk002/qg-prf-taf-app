@@ -1,30 +1,51 @@
 <!doctype html>
-<html lang="pt-BR" class="dark">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#090B0E" />
+    <meta name="theme-color" content="#0A0A0C" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="QG PRF TAF" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <meta
       name="description"
-      content="QG da PRF • TAF — Planejamento semanal de corrida Jack Daniels, força específica e simulados oficiais do Teste de Aptidão Física da PRF."
+      content="QG da PRF • TAF — Central de planejamento atlético, corrida Jack Daniels, força específica e simulados oficiais da Polícia Rodoviária Federal."
     />
     <meta property="og:title" content="QG da PRF • TAF" />
     <meta
       property="og:description"
-      content="Central tática de preparação física para o TAF da Polícia Rodoviária Federal: corrida orientada por voz, força específica e calculadora oficial."
+      content="Central de preparação física para o TAF da PRF com agenda semanal, corrida guiada por voz, treinos de força e calculadora oficial."
     />
     <title>QG da PRF • TAF</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('qg_prf_taf_theme_v1');
+          var theme = saved === 'light' || saved === 'dark' ? saved : 'dark';
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-[#090B0E] text-[#F5F7FA] antialiased selection:bg-[#F5B700] selection:text-[#090B0E]">
+  <body class="bg-[#F3F1EC] dark:bg-[#0A0A0C] text-[#111114] dark:text-[#F5F4EF] antialiased selection:bg-[#EAB308] selection:text-[#0A0A0C]">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,15 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Edit2, Pause, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
-import tafArenaImg from '../assets/images/taf_shuttle_asphalt_1795625269685.jpg';
+import { ClipboardCheck, Edit2, Pause, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import examArenaImg from '../assets/images/prf_exam_arena_1795657968474.jpg';
 import {
   ActionButton,
-  EditorialRule,
-  MediaBanner,
+  LinearProgressBar,
   MetadataLine,
-  PerformanceArcGauge,
-  SectionKicker,
-  SegmentedControl,
-  TafEvolutionChart,
+  TafLineChart,
 } from '../components/UiKit';
 import { buildSimulado, findWeakestTest } from '../domain/prfTafScoring';
 import type { TafAppState, TafSimulado } from '../domain/types';
@@ -23,11 +19,13 @@ function formatTimer(sec: number): string {
 export function TafScreen({
   state,
   todayBr,
+  onStartGuidedExam,
   onSaveSimulado,
   onDeleteSimulado,
 }: {
   state: TafAppState;
   todayBr: string;
+  onStartGuidedExam: () => void;
   onSaveSimulado: (
     editingId: number | null,
     data: string,
@@ -43,12 +41,10 @@ export function TafScreen({
   const [showModal, setShowModal] = useState(false);
   const [editingSim, setEditingSim] = useState<TafSimulado | null>(null);
 
-  // Timers oficiais
   const [timerMode, setTimerMode] = useState<'CORRIDA' | 'ABDOMINAL' | 'SHUTTLE'>('CORRIDA');
   const [timerSec, setTimerSec] = useState(12 * 60);
   const [timerRunning, setTimerRunning] = useState(false);
 
-  // Form simulado
   const [dataStr, setDataStr] = useState(todayBr);
   const [genero, setGenero] = useState('masculino');
   const [barra, setBarra] = useState('5');
@@ -105,8 +101,8 @@ export function TafScreen({
   const count = state.tafHistory.length;
   const media = count > 0 ? state.tafHistory.reduce((acc, s) => acc + s.totalPts, 0) / count : 0;
   const recorde = state.tafHistory.reduce((max, s) => Math.max(max, s.totalPts), 0);
+  const latestSim = state.tafHistory[state.tafHistory.length - 1] ?? null;
   const weakest = findWeakestTest(state.tafHistory);
-  const arcColor = count === 0 ? '#8A93A5' : recorde >= 12 ? '#22C55E' : '#EF4444';
 
   const previewSim = buildSimulado(
     0,
@@ -119,117 +115,229 @@ export function TafScreen({
     Number(shuttle.replace(',', '.')) || 0
   );
 
+  const latestDisciplines = latestSim
+    ? [
+        {
+          name: 'Barra Fixa',
+          raw: `${latestSim.barra} ${latestSim.genero === 'feminino' ? 's' : 'reps'}`,
+          pts: latestSim.ptsBarra,
+        },
+        { name: 'Abdominal', raw: `${latestSim.abdominal} reps`, pts: latestSim.ptsAbdominal },
+        {
+          name: 'Impulsão Horizontal',
+          raw: `${latestSim.impulsao.toFixed(2)} m`,
+          pts: latestSim.ptsImpulsao,
+        },
+        { name: 'Corrida 12 min', raw: `${latestSim.corrida} m`, pts: latestSim.ptsCorrida },
+        { name: 'Shuttle Run', raw: `${latestSim.shuttle.toFixed(1)} s`, pts: latestSim.ptsShuttle },
+      ]
+    : [];
+
   return (
-    <div className="space-y-6 lg:space-y-8">
-      {/* Top Arena Banner */}
-      <MediaBanner
-        src={tafArenaImg}
-        alt="Quadra asfaltada de avaliação física com marcações do Shuttle Run"
-      >
-        <div className="p-5 sm:p-7 flex flex-col sm:flex-row sm:items-end justify-between gap-5">
-          <div className="space-y-2">
+    <div className="space-y-7">
+      {/* Official Twilight Stadium Arena Scoreboard Header */}
+      <section className="relative rounded-[6px] overflow-hidden bg-[#0E0E12] border border-[#26262E] text-[#F5F4EF]">
+        <img
+          src={examArenaImg}
+          alt="Estádio de atletismo com pista e caixa de salto sob refletores"
+          referrerPolicy="no-referrer"
+          className="absolute inset-0 w-full h-full object-cover object-center opacity-50"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-r from-[#0A0A0C]/95 via-[#0A0A0C]/80 to-[#0A0A0C]/45"
+        />
+        <div className="relative z-10 p-5 space-y-5">
+          <div className="space-y-3.5">
             <MetadataLine
-              items={['Tabela Oficial PRF', 'Corte 12.0 pts', 'Máximo 25.0 pts']}
-              className="text-[#D1D5DB]"
+              items={['TABELA OFICIAL PRF', 'CORTE 12.0 PTS', 'ESCALA 0 A 25.0']}
+              tone="gold"
             />
-            <h1 className="font-display text-4xl sm:text-5xl font-bold text-[#F5F7FA] leading-none text-balance">
-              Simulados TAF PRF
+            <h1 className="font-display text-4xl font-extrabold uppercase tracking-[0.01em] text-[#F5F4EF] leading-[0.95]">
+              Avaliação Oficial TAF PRF
             </h1>
-          </div>
-          <button
-            type="button"
-            onClick={openNewModal}
-            className="self-start sm:self-auto min-h-[48px] px-5 rounded-xl bg-[#F5B700] hover:bg-[#FFCA2C] text-[#090B0E] font-bold text-sm inline-flex items-center gap-2 whitespace-nowrap cursor-pointer transition-colors"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Novo Simulado</span>
-          </button>
-        </div>
-      </MediaBanner>
-
-      {/* 2-Column Main Dashboard: Score & Chart (7 cols) + Official Timers (5 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Official Record + KPIs + Evolution */}
-        <div className="lg:col-span-7 rounded-2xl bg-[#12151B] border border-white/[0.08] p-5 sm:p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row items-center gap-6">
-            <PerformanceArcGauge
-              progress={recorde / 25}
-              valueText={recorde.toFixed(1)}
-              unitText="de 25 pts"
-              label="Recorde Geral"
-              arcColor={arcColor}
-              size={168}
-              strokeWidth={10}
-            />
-
-            <div className="flex-1 w-full grid grid-cols-3 gap-4 sm:gap-5 text-center sm:text-left">
-              <div>
-                <SectionKicker>Média</SectionKicker>
-                <p className="font-display text-3xl font-bold text-[#F5F7FA] mt-1 tabular-nums">
-                  {media.toFixed(1)}
-                </p>
-              </div>
-              <div>
-                <SectionKicker>Simulados</SectionKicker>
-                <p className="font-display text-3xl font-bold text-[#F5F7FA] mt-1 tabular-nums">
-                  {count}
-                </p>
-              </div>
-              <div>
-                <SectionKicker>Gargalo</SectionKicker>
-                <p className="text-sm font-bold text-[#F5B700] mt-2 truncate">
-                  {weakest?.name ?? '—'}
-                </p>
-              </div>
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+              <ActionButton
+                text="Simulado Oficial Guiado"
+                icon={<ClipboardCheck className="w-4 h-4" />}
+                onClick={onStartGuidedExam}
+              />
+              <button
+                type="button"
+                onClick={openNewModal}
+                className="min-h-[44px] px-4 rounded-[4px] bg-white/10 hover:bg-white/15 border border-white/20 text-xs font-semibold text-[#F5F4EF] inline-flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>Lançar Manual</span>
+              </button>
             </div>
           </div>
 
-          {state.tafHistory.length > 0 && (
-            <>
-              <EditorialRule />
-              <TafEvolutionChart scores={state.tafHistory.map((s) => [s.data, s.totalPts])} />
-            </>
-          )}
+          <div className="rounded-[4px] bg-[#0A0A0C]/80 backdrop-blur-md border border-white/15 p-4 space-y-3.5">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-[0.08em] text-[#A1A1AA] block">
+                  Recorde Geral
+                </span>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span
+                    className={`font-display text-5xl sm:text-6xl font-extrabold leading-none tabular-nums ${
+                      count === 0
+                        ? 'text-[#F5F4EF]'
+                        : recorde >= 12
+                          ? 'text-[#22C55E]'
+                          : 'text-[#EF4444]'
+                    }`}
+                  >
+                    {recorde.toFixed(1)}
+                  </span>
+                  <span className="font-mono text-xs text-[#8A8A96]">/ 25.0 PTS</span>
+                </div>
+              </div>
+              <div className="text-right font-mono text-xs space-y-1">
+                <p className="text-[#C4C4CC]">
+                  Média <strong className="text-[#F5F4EF] tabular-nums">{media.toFixed(1)}</strong>
+                </p>
+                <p className="text-[#C4C4CC]">
+                  Provas <strong className="text-[#F5F4EF] tabular-nums">{count}</strong>
+                </p>
+                <p className="text-[#EAB308] font-bold truncate max-w-[140px]">
+                  {weakest ? `Foco: ${weakest.name}` : 'Sem gargalo'}
+                </p>
+              </div>
+            </div>
+            <LinearProgressBar
+              value={recorde}
+              max={25}
+              cutoff={12}
+              barColor={recorde >= 12 ? '#22C55E' : '#EAB308'}
+              heightClass="h-1.5"
+              onDarkSurface
+            />
+            <p className="text-[11px] font-mono text-[#A1A1AA]">
+              {count === 0
+                ? 'Nenhum simulado registrado ainda'
+                : recorde >= 12
+                  ? `APTO · +${(recorde - 12).toFixed(1)} pts acima da linha de corte`
+                  : `ABAIXO DO CORTE · faltam ${(12 - recorde).toFixed(1)} pts`}
+            </p>
+          </div>
         </div>
+      </section>
 
-        {/* Right: Official Timers */}
-        <div className="lg:col-span-5 rounded-2xl bg-[#12151B] border border-white/[0.08] p-5 sm:p-6 space-y-5">
-          <div>
-            <SectionKicker>Provas cronometradas</SectionKicker>
-            <h2 className="font-display text-2xl font-bold text-[#F5F7FA] mt-0.5">
-              Cronômetros Oficiais
-            </h2>
+      {/* Mobile Stacked 5-Discipline Breakdown & Curve + Matte Carbon Chronograph */}
+      <div className="space-y-5">
+        <section className="rounded-[4px] bg-white dark:bg-[#121216] border border-[#D6D2C7] dark:border-[#26262E] p-4 space-y-5">
+          {latestDisciplines.length > 0 ? (
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="uppercase tracking-[0.06em] font-bold text-[#111114] dark:text-[#F5F4EF]">
+                  Último simulado ({latestSim?.data})
+                </span>
+                <span className="text-[#6B6B76] dark:text-[#8A8A96]">0–5 PTS</span>
+              </div>
+              <div className="space-y-3">
+                {latestDisciplines.map((d) => (
+                  <div
+                    key={d.name}
+                    className="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-2.5 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-semibold text-[#111114] dark:text-[#F5F4EF] block truncate">
+                        {d.name}
+                      </span>
+                      <span className="font-mono text-[11px] text-[#6B6B76] dark:text-[#8A8A96] tabular-nums">
+                        {d.raw}
+                      </span>
+                    </div>
+                    <LinearProgressBar
+                      value={d.pts}
+                      max={5}
+                      barColor={d.pts >= 2.5 ? '#22C55E' : '#EAB308'}
+                    />
+                    <span className="font-mono font-bold text-right text-[#111114] dark:text-[#F5F4EF] tabular-nums">
+                      {d.pts.toFixed(1)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="py-5 text-center space-y-2">
+              <p className="font-display text-2xl font-bold uppercase text-[#111114] dark:text-[#F5F4EF]">
+                Aguardando primeiro simulado
+              </p>
+              <p className="text-xs text-[#6B6B76] dark:text-[#8A8A96]">
+                Execute o Simulado Oficial Guiado ou lance manualmente suas marcas para gerar o diagnóstico das 5 provas.
+              </p>
+            </div>
+          )}
+
+          {state.tafHistory.length > 0 && (
+            <div className="pt-4 border-t border-[#E4E0D7] dark:border-[#26262E]">
+              <TafLineChart scores={state.tafHistory.map((s) => [s.data, s.totalPts])} />
+            </div>
+          )}
+        </section>
+
+        {/* Matte Carbon Hardware Chronograph Instrument */}
+        <section className="rounded-[4px] bg-[#111114] dark:bg-[#121216] text-[#F5F4EF] border border-[#26262E] p-4 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <MetadataLine items={['INSTRUMENTO DE PISTA']} className="text-[#8A8A96]" />
+              <h2 className="font-display text-3xl font-extrabold uppercase mt-0.5 text-[#F5F4EF]">
+                Cronômetro Oficial
+              </h2>
+            </div>
+            <span className="font-mono text-[10px] tracking-[0.08em] text-[#EAB308] font-bold">
+              {timerMode === 'SHUTTLE' ? 'PROGRESSIVO' : 'REGRESSIVO'}
+            </span>
           </div>
 
-          <SegmentedControl
-            options={[
+          <div className="grid grid-cols-3 gap-1 p-1 rounded-[4px] bg-[#0A0A0C] border border-[#26262E]">
+            {[
               { key: 'CORRIDA', label: '12 min' },
               { key: 'ABDOMINAL', label: '1 min' },
               { key: 'SHUTTLE', label: 'Shuttle' },
-            ]}
-            selectedKey={timerMode}
-            onSelect={(k) => switchTimerMode(k as 'CORRIDA' | 'ABDOMINAL' | 'SHUTTLE')}
-          />
+            ].map((opt) => {
+              const active = timerMode === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => switchTimerMode(opt.key as 'CORRIDA' | 'ABDOMINAL' | 'SHUTTLE')}
+                  className={`min-h-[36px] rounded-[3px] text-xs font-mono font-bold transition-colors cursor-pointer ${
+                    active
+                      ? 'bg-[#EAB308] text-[#0A0A0C]'
+                      : 'text-[#A1A1AA] hover:text-[#F5F4EF]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
 
-          <div className="py-5 text-center">
-            <span className="font-mono text-5xl sm:text-6xl font-bold tracking-tight text-[#F5F7FA] tabular-nums">
+          {/* Recessed Obsidian LCD Readout */}
+          <div className="rounded-[4px] bg-[#050507] border border-[#26262E] py-8 px-4 text-center">
+            <span className="font-mono text-6xl font-bold tracking-tight text-[#F5F4EF] tabular-nums block">
               {formatTimer(timerSec)}
             </span>
-            <p className="text-xs text-[#8A93A5] mt-2">
+            <span className="text-[11px] font-mono text-[#8A8A96] mt-3 block">
               {timerMode === 'CORRIDA'
-                ? 'Contagem regressiva · Teste de 12 minutos'
+                ? 'Teste de 12 minutos · Corrida de resistência'
                 : timerMode === 'ABDOMINAL'
-                  ? 'Contagem regressiva · Flexão abdominal (1 min)'
-                  : 'Cronômetro progressivo · Ir e Vir (Shuttle Run)'}
-            </p>
+                  ? 'Flexão abdominal · Máximo em 60 segundos'
+                  : 'Ir e Vir (Shuttle Run) · Tempo cronometrado'}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => switchTimerMode(timerMode)}
-              aria-label="Reiniciar cronômetro"
-              className="min-w-[48px] min-h-[48px] rounded-xl bg-[#1A1E26] border border-white/[0.08] hover:bg-[#232833] flex items-center justify-center text-[#9CA3B2] hover:text-[#F5F7FA] cursor-pointer transition-colors"
+              aria-label="Zerar cronômetro"
+              className="min-w-[48px] min-h-[48px] rounded-[4px] bg-[#1A1A20] hover:bg-[#26262E] border border-[#2E2E38] flex items-center justify-center text-[#F5F4EF] cursor-pointer transition-colors"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -237,135 +345,150 @@ export function TafScreen({
               text={timerRunning ? 'Pausar' : 'Iniciar Cronômetro'}
               icon={
                 timerRunning ? (
-                  <Pause className="w-4 h-4 fill-[#090B0E]" />
+                  <Pause className="w-4 h-4 fill-current" />
                 ) : (
-                  <Play className="w-4 h-4 fill-[#090B0E]" />
+                  <Play className="w-4 h-4 fill-current" />
                 )
               }
               onClick={() => setTimerRunning((r) => !r)}
+              className="flex-1"
             />
           </div>
-        </div>
+        </section>
       </div>
 
-      {/* Recorded Simulados History */}
-      <div className="space-y-4">
-        <div className="flex items-end justify-between">
-          <div>
-            <SectionKicker>Histórico oficial</SectionKicker>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#F5F7FA] mt-0.5">
-              Simulados Registrados ({count})
-            </h2>
-          </div>
+      {/* Bottom Full-Width Simulados Comparison Ledger */}
+      <section className="rounded-[4px] bg-white dark:bg-[#121216] border border-[#D6D2C7] dark:border-[#26262E] overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#D6D2C7] dark:border-[#26262E] bg-[#EAE7DF] dark:bg-[#1A1A20] flex items-center justify-between">
+          <h2 className="text-xs font-mono uppercase tracking-[0.08em] font-bold text-[#111114] dark:text-[#F5F4EF]">
+            Histórico Comparativo de Simulados ({count})
+          </h2>
+          {count > 0 && (
+            <span className="text-[11px] font-mono text-[#6B6B76] dark:text-[#8A8A96]">
+              Pontuação por prova
+            </span>
+          )}
         </div>
 
         {count === 0 ? (
-          <div className="rounded-2xl bg-[#12151B] border border-white/[0.08] p-8 text-center space-y-3">
-            <p className="text-sm font-medium text-[#D1D5DB]">
-              Nenhum simulado registrado ainda.
+          <div className="p-8 text-center space-y-3">
+            <p className="text-sm font-semibold text-[#111114] dark:text-[#F5F4EF]">
+              Nenhum simulado registrado ainda
             </p>
-            <p className="text-xs text-[#8A93A5] max-w-md mx-auto leading-relaxed">
-              Registre seu primeiro simulado para acompanhar a evolução de cada prova e identificar seu principal gargalo de pontuação.
+            <p className="text-xs text-[#6B6B76] dark:text-[#8A8A96] max-w-md mx-auto">
+              Lance suas marcas nas 5 provas oficiais para calcular a nota automática pela tabela PRF e descobrir onde ganhar pontos mais rápido.
             </p>
-            <div className="pt-2 max-w-xs mx-auto">
+            <div className="pt-1 flex flex-wrap items-center justify-center gap-2.5">
               <ActionButton
-                text="Registrar Primeiro Simulado"
+                text="Iniciar Simulado Guiado"
+                icon={<ClipboardCheck className="w-4 h-4" />}
+                onClick={onStartGuidedExam}
+              />
+              <ActionButton
+                text="Lançar Manualmente"
+                variant="secondary"
                 icon={<Plus className="w-4 h-4" />}
                 onClick={openNewModal}
               />
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[...state.tafHistory].reverse().map((sim) => {
-              const pass = sim.totalPts >= 12;
-              const tests = [
-                { label: 'Barra', pts: sim.ptsBarra },
-                { label: 'Abdom.', pts: sim.ptsAbdominal },
-                { label: 'Impulsão', pts: sim.ptsImpulsao },
-                { label: 'Corrida', pts: sim.ptsCorrida },
-                { label: 'Shuttle', pts: sim.ptsShuttle },
-              ];
-              return (
-                <div
-                  key={sim.id}
-                  className="rounded-2xl bg-[#12151B] border border-white/[0.08] p-5 space-y-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <MetadataLine
-                        items={[
-                          sim.data,
-                          sim.genero === 'feminino' ? 'Feminino' : 'Masculino',
-                          pass ? 'Apto' : 'Abaixo do corte',
-                        ]}
-                      />
-                      <p
-                        className={`font-display text-3xl font-bold leading-none tabular-nums ${
-                          pass ? 'text-[#22C55E]' : 'text-[#EF4444]'
-                        }`}
-                      >
-                        {sim.totalPts.toFixed(1)}{' '}
-                        <span className="text-sm font-sans font-medium text-[#8A93A5]">/ 25 pts</span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(sim)}
-                        aria-label="Editar simulado"
-                        className="min-w-[44px] min-h-[44px] rounded-xl hover:bg-white/[0.06] flex items-center justify-center text-[#9CA3B2] hover:text-[#F5F7FA] cursor-pointer transition-colors"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteSimulado(sim.id)}
-                        aria-label="Excluir simulado"
-                        className="min-w-[44px] min-h-[44px] rounded-xl hover:bg-[#EF4444]/10 flex items-center justify-center text-[#9CA3B2] hover:text-[#EF4444] cursor-pointer transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 5-Test Score Breakdown */}
-                  <div className="grid grid-cols-5 gap-2 pt-2 border-t border-white/[0.06]">
-                    {tests.map((t) => (
-                      <div key={t.label} className="space-y-1.5">
-                        <span className="text-[11px] text-[#8A93A5] block truncate">{t.label}</span>
-                        <span className="font-mono text-xs font-bold text-[#F5F7FA] block tabular-nums">
-                          {t.pts.toFixed(1)}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[640px]">
+              <thead>
+                <tr className="border-b border-[#D6D2C7] dark:border-[#26262E] text-[10px] font-mono uppercase tracking-[0.08em] font-semibold text-[#6B6B76] dark:text-[#8A8A96]">
+                  <th className="py-2.5 px-5">Data</th>
+                  <th className="py-2.5 px-3">Sexo</th>
+                  <th className="py-2.5 px-3 text-right">Barra</th>
+                  <th className="py-2.5 px-3 text-right">Abdom.</th>
+                  <th className="py-2.5 px-3 text-right">Impulsão</th>
+                  <th className="py-2.5 px-3 text-right">Corrida</th>
+                  <th className="py-2.5 px-3 text-right">Shuttle</th>
+                  <th className="py-2.5 px-4 text-right">Total</th>
+                  <th className="py-2.5 px-5 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E4E0D7] dark:divide-[#202028] text-xs">
+                {[...state.tafHistory].reverse().map((sim) => {
+                  const pass = sim.totalPts >= 12;
+                  return (
+                    <tr
+                      key={sim.id}
+                      className="hover:bg-[#F3F1EC] dark:hover:bg-[#1A1A20]/60 transition-colors"
+                    >
+                      <td className="py-3.5 px-5 font-mono font-semibold text-[#111114] dark:text-[#F5F4EF] tabular-nums">
+                        {sim.data}
+                      </td>
+                      <td className="py-3.5 px-3 text-[#6B6B76] dark:text-[#8A8A96]">
+                        {sim.genero === 'feminino' ? 'Fem.' : 'Masc.'}
+                      </td>
+                      <td className="py-3.5 px-3 font-mono text-right text-[#47474F] dark:text-[#C4C4CC] tabular-nums">
+                        {sim.ptsBarra.toFixed(1)}
+                      </td>
+                      <td className="py-3.5 px-3 font-mono text-right text-[#47474F] dark:text-[#C4C4CC] tabular-nums">
+                        {sim.ptsAbdominal.toFixed(1)}
+                      </td>
+                      <td className="py-3.5 px-3 font-mono text-right text-[#47474F] dark:text-[#C4C4CC] tabular-nums">
+                        {sim.ptsImpulsao.toFixed(1)}
+                      </td>
+                      <td className="py-3.5 px-3 font-mono text-right text-[#47474F] dark:text-[#C4C4CC] tabular-nums">
+                        {sim.ptsCorrida.toFixed(1)}
+                      </td>
+                      <td className="py-3.5 px-3 font-mono text-right text-[#47474F] dark:text-[#C4C4CC] tabular-nums">
+                        {sim.ptsShuttle.toFixed(1)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <span
+                          className={`font-mono font-bold tabular-nums ${
+                            pass
+                              ? 'text-[#15803D] dark:text-[#22C55E]'
+                              : 'text-[#DC2626] dark:text-[#EF4444]'
+                          }`}
+                        >
+                          {sim.totalPts.toFixed(1)} pts
                         </span>
-                        <div className="h-1 w-full rounded-full bg-white/[0.08] overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.max(6, Math.min(100, (t.pts / 5) * 100))}%`,
-                              backgroundColor: t.pts >= 2 ? '#F5B700' : '#EF4444',
-                            }}
-                          />
+                        <span className="block font-mono text-[10px] uppercase text-[#6B6B76] dark:text-[#8A8A96]">
+                          {pass ? 'Apto' : 'Abaixo'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(sim)}
+                            aria-label="Editar simulado"
+                            className="w-9 h-9 rounded-[4px] hover:bg-[#EAE7DF] dark:hover:bg-[#24242C] inline-flex items-center justify-center text-[#47474F] dark:text-[#8A8A96] hover:text-[#111114] dark:hover:text-[#F5F4EF] cursor-pointer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteSimulado(sim.id)}
+                            aria-label="Excluir simulado"
+                            className="w-9 h-9 rounded-[4px] hover:bg-[#FEF2F2] dark:hover:bg-[#EF4444]/15 inline-flex items-center justify-center text-[#47474F] dark:text-[#8A8A96] hover:text-[#DC2626] dark:hover:text-[#EF4444] cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Modal Simulado */}
+      {/* Modal Calculadora Oficial Simulado */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full max-w-md bg-[#12151B] border border-white/[0.1] rounded-t-3xl sm:rounded-2xl p-5 sm:p-6 space-y-5 safe-bottom max-h-[90dvh] overflow-y-auto">
-            <div className="sm:hidden w-10 h-1.5 rounded-full bg-white/15 mx-auto -mt-1 mb-2" />
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full max-w-md bg-white dark:bg-[#121216] border border-[#D6D2C7] dark:border-[#26262E] rounded-t-[6px] sm:rounded-[6px] p-5 sm:p-6 space-y-5 safe-bottom max-h-[90dvh] overflow-y-auto shadow-2xl">
+            <div className="sm:hidden w-10 h-1 rounded-full bg-[#D6D2C7] dark:bg-[#2E2E38] mx-auto -mt-1 mb-1" />
             <div className="flex items-start justify-between gap-3">
               <div>
-                <SectionKicker>Calculadora oficial PRF</SectionKicker>
-                <h3 className="font-display text-2xl font-bold text-[#F5F7FA] mt-0.5">
+                <MetadataLine items={['CALCULADORA OFICIAL PRF']} />
+                <h3 className="font-display text-3xl font-extrabold uppercase text-[#111114] dark:text-[#F5F4EF] mt-1">
                   {editingSim ? 'Editar Simulado' : 'Novo Simulado TAF'}
                 </h3>
               </div>
@@ -373,21 +496,23 @@ export function TafScreen({
                 type="button"
                 onClick={() => setShowModal(false)}
                 aria-label="Fechar"
-                className="min-w-[44px] min-h-[44px] rounded-xl bg-[#1A1E26] border border-white/[0.08] flex items-center justify-center text-[#9CA3B2] hover:text-[#F5F7FA] cursor-pointer"
+                className="min-w-[44px] min-h-[44px] rounded-[4px] border border-[#D6D2C7] dark:border-[#26262E] bg-[#F3F1EC] dark:bg-[#1A1A20] flex items-center justify-center text-[#6B6B76] dark:text-[#8A8A96] hover:text-[#111114] dark:hover:text-[#F5F4EF] cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="rounded-xl bg-[#090B0E] border border-white/[0.08] p-4 flex items-center justify-between">
+            <div className="rounded-[4px] bg-[#111114] dark:bg-[#0A0A0C] border border-[#26262E] p-4 flex items-center justify-between text-[#F5F4EF]">
               <div>
-                <span className="text-xs font-medium text-[#8A93A5] block">Pontuação Prevista</span>
-                <span className="text-xs font-semibold text-[#9CA3B2]">
-                  {previewSim.totalPts >= 12 ? 'Acima do corte oficial' : 'Abaixo do corte (12.0)'}
+                <span className="text-[10px] font-mono uppercase tracking-[0.08em] text-[#8A8A96] block">
+                  Nota Prevista
+                </span>
+                <span className="text-xs text-[#C4C4CC]">
+                  {previewSim.totalPts >= 12 ? 'Acima do corte (12.0)' : 'Abaixo do corte (12.0)'}
                 </span>
               </div>
               <span
-                className={`font-display text-3xl font-bold tabular-nums ${
+                className={`font-display text-3xl font-extrabold tabular-nums ${
                   previewSim.totalPts >= 12 ? 'text-[#22C55E]' : 'text-[#EF4444]'
                 }`}
               >
@@ -397,20 +522,24 @@ export function TafScreen({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-[#9CA3B2] block mb-1.5">Data</label>
+                <label className="text-xs font-semibold text-[#47474F] dark:text-[#C4C4CC] block mb-1">
+                  Data
+                </label>
                 <input
                   type="text"
                   value={dataStr}
                   onChange={(e) => setDataStr(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-[#090B0E] border border-white/[0.1] px-3 text-sm font-mono text-[#F5F7FA] outline-none focus:border-[#F5B700]"
+                  className="w-full h-11 rounded-[4px] bg-[#F3F1EC] dark:bg-[#0A0A0C] border border-[#D6D2C7] dark:border-[#2E2E38] px-3 text-sm font-mono text-[#111114] dark:text-[#F5F4EF] outline-none focus:border-[#EAB308]"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-[#9CA3B2] block mb-1.5">Sexo</label>
+                <label className="text-xs font-semibold text-[#47474F] dark:text-[#C4C4CC] block mb-1">
+                  Sexo
+                </label>
                 <select
                   value={genero}
                   onChange={(e) => setGenero(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-[#090B0E] border border-white/[0.1] px-3 text-sm text-[#F5F7FA] outline-none focus:border-[#F5B700]"
+                  className="w-full h-11 rounded-[4px] bg-[#F3F1EC] dark:bg-[#0A0A0C] border border-[#D6D2C7] dark:border-[#2E2E38] px-3 text-sm text-[#111114] dark:text-[#F5F4EF] outline-none focus:border-[#EAB308]"
                 >
                   <option value="masculino">Masculino</option>
                   <option value="feminino">Feminino</option>
@@ -420,22 +549,24 @@ export function TafScreen({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-[#9CA3B2] block mb-1.5">
+                <label className="text-xs font-medium text-[#47474F] dark:text-[#C4C4CC] block mb-1">
                   Barra ({genero === 'feminino' ? 'seg' : 'reps'}) ·{' '}
-                  <span className="font-mono text-[#F5B700]">{previewSim.ptsBarra.toFixed(1)}</span>
+                  <span className="font-mono font-bold text-[#CA8A04] dark:text-[#EAB308]">
+                    {previewSim.ptsBarra.toFixed(1)}
+                  </span>
                 </label>
                 <input
                   type="number"
                   step="1"
                   value={barra}
                   onChange={(e) => setBarra(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-[#090B0E] border border-white/[0.1] px-3 text-sm font-mono text-[#F5F7FA] outline-none focus:border-[#F5B700]"
+                  className="w-full h-11 rounded-[4px] bg-[#F3F1EC] dark:bg-[#0A0A0C] border border-[#D6D2C7] dark:border-[#2E2E38] px-3 text-sm font-mono text-[#111114] dark:text-[#F5F4EF] outline-none focus:border-[#EAB308]"
                 />
               </div>
               <div>
-                <label className="text-xs text-[#9CA3B2] block mb-1.5">
+                <label className="text-xs font-medium text-[#47474F] dark:text-[#C4C4CC] block mb-1">
                   Abdominal ·{' '}
-                  <span className="font-mono text-[#F5B700]">
+                  <span className="font-mono font-bold text-[#CA8A04] dark:text-[#EAB308]">
                     {previewSim.ptsAbdominal.toFixed(1)}
                   </span>
                 </label>
@@ -443,13 +574,13 @@ export function TafScreen({
                   type="number"
                   value={abdominal}
                   onChange={(e) => setAbdominal(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-[#090B0E] border border-white/[0.1] px-3 text-sm font-mono text-[#F5F7FA] outline-none focus:border-[#F5B700]"
+                  className="w-full h-11 rounded-[4px] bg-[#F3F1EC] dark:bg-[#0A0A0C] border border-[#D6D2C7] dark:border-[#2E2E38] px-3 text-sm font-mono text-[#111114] dark:text-[#F5F4EF] outline-none focus:border-[#EAB308]"
                 />
               </div>
               <div>
-                <label className="text-xs text-[#9CA3B2] block mb-1.5">
+                <label className="text-xs font-medium text-[#47474F] dark:text-[#C4C4CC] block mb-1">
                   Impulsão (m) ·{' '}
-                  <span className="font-mono text-[#F5B700]">
+                  <span className="font-mono font-bold text-[#CA8A04] dark:text-[#EAB308]">
                     {previewSim.ptsImpulsao.toFixed(1)}
                   </span>
                 </label>
@@ -457,13 +588,13 @@ export function TafScreen({
                   type="text"
                   value={impulsao}
                   onChange={(e) => setImpulsao(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-[#090B0E] border border-white/[0.1] px-3 text-sm font-mono text-[#F5F7FA] outline-none focus:border-[#F5B700]"
+                  className="w-full h-11 rounded-[4px] bg-[#F3F1EC] dark:bg-[#0A0A0C] border border-[#D6D2C7] dark:border-[#2E2E38] px-3 text-sm font-mono text-[#111114] dark:text-[#F5F4EF] outline-none focus:border-[#EAB308]"
                 />
               </div>
               <div>
-                <label className="text-xs text-[#9CA3B2] block mb-1.5">
+                <label className="text-xs font-medium text-[#47474F] dark:text-[#C4C4CC] block mb-1">
                   Corrida 12m (m) ·{' '}
-                  <span className="font-mono text-[#F5B700]">
+                  <span className="font-mono font-bold text-[#CA8A04] dark:text-[#EAB308]">
                     {previewSim.ptsCorrida.toFixed(1)}
                   </span>
                 </label>
@@ -471,13 +602,13 @@ export function TafScreen({
                   type="number"
                   value={corrida}
                   onChange={(e) => setCorrida(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-[#090B0E] border border-white/[0.1] px-3 text-sm font-mono text-[#F5F7FA] outline-none focus:border-[#F5B700]"
+                  className="w-full h-11 rounded-[4px] bg-[#F3F1EC] dark:bg-[#0A0A0C] border border-[#D6D2C7] dark:border-[#2E2E38] px-3 text-sm font-mono text-[#111114] dark:text-[#F5F4EF] outline-none focus:border-[#EAB308]"
                 />
               </div>
               <div className="col-span-2">
-                <label className="text-xs text-[#9CA3B2] block mb-1.5">
+                <label className="text-xs font-medium text-[#47474F] dark:text-[#C4C4CC] block mb-1">
                   Shuttle Run (seg) ·{' '}
-                  <span className="font-mono text-[#F5B700]">
+                  <span className="font-mono font-bold text-[#CA8A04] dark:text-[#EAB308]">
                     {previewSim.ptsShuttle.toFixed(1)}
                   </span>
                 </label>
@@ -485,7 +616,7 @@ export function TafScreen({
                   type="text"
                   value={shuttle}
                   onChange={(e) => setShuttle(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-[#090B0E] border border-white/[0.1] px-3 text-sm font-mono text-[#F5F7FA] outline-none focus:border-[#F5B700]"
+                  className="w-full h-11 rounded-[4px] bg-[#F3F1EC] dark:bg-[#0A0A0C] border border-[#D6D2C7] dark:border-[#2E2E38] px-3 text-sm font-mono text-[#111114] dark:text-[#F5F4EF] outline-none focus:border-[#EAB308]"
                 />
               </div>
             </div>
@@ -505,6 +636,7 @@ export function TafScreen({
                 );
                 setShowModal(false);
               }}
+              className="w-full"
             />
           </div>
         </div>

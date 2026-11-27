@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="108" fill="#0B1F3A" />
+  <rect x="28" y="28" width="456" height="456" rx="84" fill="none" stroke="#1E3A5F" stroke-width="8" />
+  <!-- Shield emblem -->
+  <path
+    d="M256 96 L380 144 V252 C380 330 326 392 256 420 C186 392 132 330 132 252 V144 L256 96 Z"
+    fill="#0F1623"
+    stroke="#EA580C"
+    stroke-width="18"
+    stroke-linejoin="round"
+  />
+  <!-- Athletic velocity chevron -->
+  <path
+    d="M196 276 L242 222 L274 254 L322 194"
+    fill="none"
+    stroke="#F1F5F9"
+    stroke-width="22"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle cx="322" cy="194" r="14" fill="#EA580C" />
+  <!-- Bottom bar -->
+  <rect x="196" y="316" width="120" height="14" rx="7" fill="#EA580C" />
+</svg>

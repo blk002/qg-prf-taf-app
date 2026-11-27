@@ -26,6 +26,24 @@ const WEEK_ORDER: [string, string][] = [
   ['dom', 'Dom'],
 ];
 
+const DAY_INDEX: Record<string, number> = Object.fromEntries(
+  WEEK_ORDER.map(([key], idx) => [key, idx])
+);
+
+const DAY_LABEL: Record<string, string> = Object.fromEntries(WEEK_ORDER);
+
+function runCodeToDayType(code: string | undefined): PlannedDayType {
+  if (code === 'Q2') return 'CORRIDA_Q2';
+  if (code === 'Q3') return 'CORRIDA_Q3';
+  return 'CORRIDA_Q1';
+}
+
+function runCodeToOrder(code: string | undefined): number {
+  if (code === 'Q2') return 1;
+  if (code === 'Q3') return 2;
+  return 0;
+}
+
 export function formatLocalIsoDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -37,17 +55,138 @@ export function buildWeeklyPlan(
   preset: WeeklySplitPreset,
   runWorkouts: RunWorkout[],
   tafHistory: TafSimulado[],
-  templates: WorkoutTemplate[]
+  templates: WorkoutTemplate[],
+  referenceDate: Date = new Date()
 ): PlannedDaySlot[] {
   const split = WEEKLY_SPLIT_OPTIONS.find((o) => o.key === preset) ?? WEEKLY_SPLIT_OPTIONS[0];
+
+  const ref = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate()
+  );
+  const todayIndex = (ref.getDay() + 6) % 7;
+  const monday = new Date(ref);
+  monday.setDate(ref.getDate() - todayIndex);
+
+  // Map each day of the current calendar week to its ISO date
+  const dayKeyToIso: Record<string, string> = {};
+  const isoToDayKey: Record<string, string> = {};
+  WEEK_ORDER.forEach(([key], idx) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + idx);
+    const iso = formatLocalIsoDate(d);
+    dayKeyToIso[key] = iso;
+    isoToDayKey[iso] = key;
+  });
+
+  const pendingRuns = runWorkouts.filter((r) => r.status === 'PENDENTE');
   const activeWeek =
-    runWorkouts.find((r) => r.status === 'PENDENTE')?.week ??
-    runWorkouts[runWorkouts.length - 1]?.week ??
-    9;
-  const weekRuns = runWorkouts.filter((r) => r.week === activeWeek);
-  const q1 = weekRuns.find((r) => r.code === 'Q1') ?? null;
-  const q2 = weekRuns.find((r) => r.code === 'Q2') ?? null;
-  const q3 = weekRuns.find((r) => r.code === 'Q3') ?? null;
+    pendingRuns[0]?.week ?? runWorkouts[runWorkouts.length - 1]?.week ?? 9;
+  const activeWeekRuns = runWorkouts.filter((r) => r.week === activeWeek);
+
+  interface AssignedRunInfo {
+    run: RunWorkout;
+    dayType: PlannedDayType;
+    isRescheduled: boolean;
+    shiftedFromLabel?: string;
+  }
+
+  const runAssignments: Record<string, AssignedRunInfo> = {};
+  const usedRunIds = new Set<string>();
+
+  // 1. Anchor runs already completed/partial on one of this calendar week's run days
+  for (const run of runWorkouts) {
+    if (run.status === 'PENDENTE' || !run.completedDate) continue;
+    const matchedDay = isoToDayKey[run.completedDate];
+    if (matchedDay && split.runDays.includes(matchedDay) && !runAssignments[matchedDay]) {
+      runAssignments[matchedDay] = {
+        run,
+        dayType: runCodeToDayType(run.code),
+        isRescheduled: false,
+      };
+      usedRunIds.add(run.id);
+    }
+  }
+
+  // 2. Anchor active-week runs completed on a non-run day of THIS week (or marked PULADO)
+  //    to unoccupied past run days so the weekly timeline reflects that they are already resolved.
+  const pastUnoccupiedRunDays = split.runDays.filter(
+    (d) => (DAY_INDEX[d] ?? 0) < todayIndex && !runAssignments[d]
+  );
+  const resolvedThisWeekOrSkipped = activeWeekRuns.filter((r) => {
+    if (r.status === 'PENDENTE' || usedRunIds.has(r.id)) return false;
+    if (r.status === 'PULADO') return true;
+    return Boolean(r.completedDate && isoToDayKey[r.completedDate]);
+  });
+
+  resolvedThisWeekOrSkipped.forEach((run, i) => {
+    const pastDay = pastUnoccupiedRunDays[i];
+    if (!pastDay) return;
+    runAssignments[pastDay] = {
+      run,
+      dayType: runCodeToDayType(run.code),
+      isRescheduled: false,
+    };
+    usedRunIds.add(run.id);
+  });
+
+  // 3. Assign pending runs STRICTLY IN ORDER starting from today / next upcoming run day
+  //    so a later workout (Q2/Q3) is NEVER prescribed while an earlier workout (Q1/Q2) is still pending.
+  const upcomingUnoccupiedRunDays = split.runDays.filter(
+    (d) => (DAY_INDEX[d] ?? 0) >= todayIndex && !runAssignments[d]
+  );
+  const missedPastRunDays = split.runDays.filter(
+    (d) => (DAY_INDEX[d] ?? 0) < todayIndex && !runAssignments[d]
+  );
+
+  let pendingCursor = 0;
+  for (const dayKey of upcomingUnoccupiedRunDays) {
+    const nextRun = pendingRuns[pendingCursor];
+    if (!nextRun) break;
+    pendingCursor += 1;
+
+    const slotPos = split.runDays.indexOf(dayKey);
+    const expectedPos = runCodeToOrder(nextRun.code);
+    const isRescheduled =
+      missedPastRunDays.length > 0 &&
+      nextRun.week === activeWeek &&
+      slotPos > expectedPos;
+    const shiftedFromDay = split.runDays[expectedPos];
+
+    runAssignments[dayKey] = {
+      run: nextRun,
+      dayType: runCodeToDayType(nextRun.code),
+      isRescheduled,
+      shiftedFromLabel: isRescheduled ? DAY_LABEL[shiftedFromDay] : undefined,
+    };
+    usedRunIds.add(nextRun.id);
+  }
+
+  // Fallback if all 54 workouts are already done (show last week's completed workouts)
+  if (pendingRuns.length === 0 && Object.keys(runAssignments).length === 0) {
+    activeWeekRuns.slice(0, 3).forEach((run, idx) => {
+      const dayKey = split.runDays[idx];
+      if (!dayKey) return;
+      runAssignments[dayKey] = {
+        run,
+        dayType: runCodeToDayType(run.code),
+        isRescheduled: false,
+      };
+    });
+  }
+
+  // Determine where the first missed pending run was moved (for helpful copy on past missed days)
+  const firstPendingRun = pendingRuns[0] ?? null;
+  const firstPendingTargetDayKey = firstPendingRun
+    ? split.runDays.find((d) => runAssignments[d]?.run.id === firstPendingRun.id) ?? null
+    : null;
+  const completedTodayOrLaterDayKey = split.runDays.find(
+    (d) =>
+      (DAY_INDEX[d] ?? 0) >= todayIndex &&
+      runAssignments[d] &&
+      runAssignments[d].run.status !== 'PENDENTE'
+  );
 
   const weakest = findWeakestTest(tafHistory)?.name ?? null;
   const specificTemplateId = weakest === 'Shuttle Run' ? 'esp_shuttle' : 'esp_impulsao';
@@ -55,19 +194,13 @@ export function buildWeeklyPlan(
   const runStrTemplate = templates.find((t) => t.id === 'fort_corrida');
   const specificTemplate = templates.find((t) => t.id === specificTemplateId);
 
-  const runAssignments: Record<string, { run: RunWorkout | null; dayType: PlannedDayType }> = {
-    [split.runDays[0]]: { run: q1, dayType: 'CORRIDA_Q1' },
-    [split.runDays[1]]: { run: q2, dayType: 'CORRIDA_Q2' },
-    [split.runDays[2]]: { run: q3, dayType: 'CORRIDA_Q3' },
-  };
-
   const nonRunKeys = WEEK_ORDER.map(([k]) => k).filter((k) => !split.runDays.includes(k));
   const restKey = nonRunKeys.includes('dom') ? 'dom' : nonRunKeys[nonRunKeys.length - 1];
   const strengthKeys = nonRunKeys.filter((k) => k !== restKey);
 
   const strengthAssignments: Record<string, PlannedDaySlot> = {};
   strengthKeys.forEach((dayKey, index) => {
-    const shortLabel = WEEK_ORDER.find(([k]) => k === dayKey)?.[1] ?? dayKey;
+    const shortLabel = DAY_LABEL[dayKey] ?? dayKey;
     if (index === 0) {
       strengthAssignments[dayKey] = {
         dayKey,
@@ -78,7 +211,8 @@ export function buildWeeklyPlan(
         estimatedMin: 35,
         linkedRunId: null,
         linkedTemplateId: 'forca_barra_core',
-        coachReason: 'Mantém pernas frescas entre as corridas enquanto sobe sua nota na barra e abdominal.',
+        coachReason:
+          'Mantém pernas frescas entre as corridas enquanto sobe sua nota na barra e abdominal.',
       };
     } else if (index === 1) {
       strengthAssignments[dayKey] = {
@@ -90,7 +224,8 @@ export function buildWeeklyPlan(
         estimatedMin: 35,
         linkedRunId: null,
         linkedTemplateId: 'fort_corrida',
-        coachReason: 'Previne canelite e melhora economia de corrida para suportar os treinos Q2/Q3.',
+        coachReason:
+          'Previne canelite e melhora economia de corrida para suportar os treinos Q2/Q3.',
       };
     } else {
       strengthAssignments[dayKey] = {
@@ -111,27 +246,65 @@ export function buildWeeklyPlan(
   });
 
   return WEEK_ORDER.map(([dayKey, shortLabel]) => {
-    const runPair = runAssignments[dayKey];
-    if (runPair) {
-      const { run, dayType } = runPair;
-      const estimatedMin = run ? estimateRunDurationMinutes(run.prescription) : 45;
-      return {
-        dayKey,
-        shortLabel,
-        type: dayType,
-        title: run ? `Corrida Sem ${run.week} · ${run.code}` : 'Corrida Jack Daniels',
-        subtitle: run?.prescription ?? 'Treino do ciclo Jack Daniels',
-        estimatedMin,
-        linkedRunId: run?.id ?? null,
-        linkedTemplateId: null,
-        coachReason:
+    const isRunDay = split.runDays.includes(dayKey);
+    if (isRunDay) {
+      const assigned = runAssignments[dayKey];
+      if (assigned) {
+        const { run, dayType, isRescheduled, shiftedFromLabel } = assigned;
+        const estimatedMin = estimateRunDurationMinutes(run.prescription);
+        const baseReason =
           dayType === 'CORRIDA_Q1'
             ? 'Base aeróbica (Q1): sustente ritmo confortável para construir volume sem fadiga.'
             : dayType === 'CORRIDA_Q2'
               ? 'Qualidade (Q2): execute os tiros com foco no tempo-alvo exato do seu VDOT.'
-              : 'Qualidade (Q3): complete a última sessão forte da semana mantendo boa postura.',
+              : 'Qualidade (Q3): complete a última sessão forte da semana mantendo boa postura.';
+
+        const coachReason = isRescheduled
+          ? `Reagendado de ${shiftedFromLabel ?? 'dia anterior'}: o sistema identificou que ${run.code} ainda não foi concluído e o manteve na ordem antes de avançar. ${baseReason}`
+          : baseReason;
+
+        return {
+          dayKey,
+          shortLabel,
+          type: dayType,
+          title: `Corrida Sem ${run.week} · ${run.code}`,
+          subtitle: run.prescription,
+          estimatedMin,
+          linkedRunId: run.id,
+          linkedTemplateId: null,
+          coachReason,
+          runStatus: run.status,
+          isRescheduled,
+        };
+      }
+
+      // Past run day where no workout was logged -> shifted forward to preserve sequence
+      const targetLabel = firstPendingTargetDayKey
+        ? DAY_LABEL[firstPendingTargetDayKey]
+        : DAY_LABEL[split.runDays[0]];
+      const subtitle = firstPendingRun
+        ? firstPendingTargetDayKey
+          ? `Sem ${firstPendingRun.week} · ${firstPendingRun.code} não realizado neste dia — movido para ${targetLabel}.`
+          : `Sem ${firstPendingRun.week} · ${firstPendingRun.code} aguarda o próximo dia de corrida (${targetLabel}).`
+        : completedTodayOrLaterDayKey
+          ? `Corrida da sequência concluída em ${DAY_LABEL[completedTodayOrLaterDayKey]}.`
+          : 'Nenhuma corrida registrada neste dia.';
+
+      return {
+        dayKey,
+        shortLabel,
+        type: 'CORRIDA_REAGENDADA',
+        title: 'Corrida reagendada',
+        subtitle,
+        estimatedMin: 0,
+        linkedRunId: null,
+        linkedTemplateId: null,
+        coachReason:
+          'A sequência Q1 → Q2 → Q3 é preservada automaticamente para que nenhum treino posterior seja prescrito antes de concluir o anterior.',
+        rescheduledTargetDayKey: firstPendingTargetDayKey,
       };
     }
+
     if (dayKey === restKey) {
       return {
         dayKey,
@@ -142,9 +315,11 @@ export function buildWeeklyPlan(
         estimatedMin: 0,
         linkedRunId: null,
         linkedTemplateId: null,
-        coachReason: 'A adaptação muscular e aeróbica acontece no descanso — essencial antes da próxima semana.',
+        coachReason:
+          'A adaptação muscular e aeróbica acontece no descanso — essencial antes da próxima semana.',
       };
     }
+
     return strengthAssignments[dayKey];
   });
 }
@@ -158,19 +333,31 @@ export function buildPlannedRoutineBlocks(
   completedBlocks: RoutineTrainingBlock[] = [],
   referenceDate: Date = new Date()
 ): RoutineTrainingBlock[] {
-  const ref = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  const ref = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate()
+  );
   const mondayOffset = (ref.getDay() + 6) % 7;
   const monday = new Date(ref);
   monday.setDate(ref.getDate() - mondayOffset);
 
-  const weeklyPlan = buildWeeklyPlan(preset, runWorkouts, tafHistory, templates);
+  const weeklyPlan = buildWeeklyPlan(preset, runWorkouts, tafHistory, templates, ref);
   const completedDates = new Set(
     completedBlocks.filter((b) => !b.isPlanned).map((b) => b.dateIso)
   );
 
   const result: RoutineTrainingBlock[] = [];
   weeklyPlan.forEach((slot, index) => {
-    if (slot.type === 'DESCANSO' || slot.estimatedMin <= 0) return;
+    if (
+      slot.type === 'DESCANSO' ||
+      slot.type === 'CORRIDA_REAGENDADA' ||
+      slot.estimatedMin <= 0
+    ) {
+      return;
+    }
+    if (slot.runStatus && slot.runStatus !== 'PENDENTE') return;
+
     const d = new Date(monday);
     d.setDate(monday.getDate() + index);
     const dateIso = formatLocalIsoDate(d);
