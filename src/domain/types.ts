@@ -156,6 +156,7 @@ export interface ExerciseGuide {
   exerciseId: string;
   title: string;
   muscles: string;
+  youtubeVideoId?: string;
   youtubeQuery: string;
   youtubeShortsQuery: string;
   setup: string;

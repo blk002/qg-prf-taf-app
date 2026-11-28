@@ -15,9 +15,9 @@ export function ExerciseGuideModal({
   const youtubeShortsUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
     guide.youtubeShortsQuery
   )}`;
-  const embedSearchUrl = `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(
-    guide.youtubeQuery
-  )}`;
+  const embedVideoUrl = guide.youtubeVideoId
+    ? `https://www.youtube-nocookie.com/embed/${guide.youtubeVideoId}?rel=0&modestbranding=1&playsinline=1`
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -44,14 +44,32 @@ export function ExerciseGuideModal({
           </button>
         </div>
 
-        <div className="rounded-[4px] overflow-hidden border border-[#D6D2C7] dark:border-[#26262E] bg-black aspect-video">
-          <iframe
-            title={`Vídeo: ${guide.title}`}
-            src={embedSearchUrl}
-            className="w-full h-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
+        <div className="w-full rounded-[4px] overflow-hidden border border-[#D6D2C7] dark:border-[#26262E] bg-black">
+          {embedVideoUrl ? (
+            <iframe
+              title={`Vídeo: ${guide.title}`}
+              src={embedVideoUrl}
+              referrerPolicy="strict-origin-when-cross-origin"
+              className="block w-full h-auto max-w-full aspect-video border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <a
+              href={youtubeSearchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full aspect-video flex flex-col items-center justify-center gap-2.5 p-5 text-center bg-[#0E0E12] text-[#F5F4EF] hover:bg-[#16161C] transition-colors"
+            >
+              <span className="w-12 h-12 rounded-full bg-[#EAB308] text-[#0A0A0C] flex items-center justify-center">
+                <Play className="w-5 h-5 fill-current ml-0.5" />
+              </span>
+              <span className="text-sm font-semibold">Assistir execução no YouTube</span>
+              <span className="text-[11px] font-mono text-[#A1A1AA]">
+                Abre a busca direta deste exercício personalizado
+              </span>
+            </a>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-2.5">
